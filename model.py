@@ -5,7 +5,7 @@ class SecretKeys(db.Model):
     __tablename__ = "secret_keys"
     node_id = db.Column(db.Integer, primary_key=True)
     secret_key = db.Column(db.String(32))
-    derivation_salt = db.Column(db.String(32))
+    derivation_salt = db.Column(db.String(16))
     created_at = db.Column(db.Integer)
 
     def __init__(self, node_id, secret_key, derivation_salt, created_at):
@@ -24,11 +24,13 @@ class Challenges(db.Model):
     __tablename__ = "challenges"
     key_id = db.Column(db.Integer, db.ForeignKey('secret_keys.node_id'), primary_key=True)
     challenge = db.Column(db.String(32))
+    ephemeral_derivation_salt = db.Column(db.String(16))
     created_at = db.Column(db.Integer)
 
-    def __init__(self, key_id, challenge, created_at):
+    def __init__(self, key_id, challenge, ephemeral_derivation_salt, created_at):
         self.key_id = key_id
         self.challenge = challenge
+        self.ephemeral_derivation_salt = ephemeral_derivation_salt
         self.created_at = created_at
 
 
