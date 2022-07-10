@@ -14,6 +14,7 @@ challenges_schema = ChallengesSchema()
 
 
 class SecretKeyManagement(Resource):
+    # register new key
     @staticmethod
     def post():
         parser = reqparse.RequestParser()
@@ -76,6 +77,7 @@ class ValidateKeyManagement(Resource):
 
 class ChallengeResponseManagement(Resource):
     @staticmethod
+    # validate if secret key is up to date
     def get():
         parser = reqparse.RequestParser()
         parser.add_argument('node_id', type=int, required=True, help='node_id must be an integer and cannot be blank')

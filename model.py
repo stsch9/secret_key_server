@@ -25,14 +25,16 @@ class Challenges(db.Model):
     key_id = db.Column(db.Integer, db.ForeignKey('secret_keys.node_id'), primary_key=True)
     challenge = db.Column(db.String(32))
     ephemeral_derivation_salt = db.Column(db.String(16))
-    ephemeral_secret_key = db.Column(db.String(32))
+    ephemeral_authentication_key = db.Column(db.String(32))
+    ephemeral_encryption_key = db.Column(db.String(32))
     created_at = db.Column(db.Integer)
 
-    def __init__(self, key_id, challenge, ephemeral_derivation_salt, ephemeral_secret_key, created_at):
+    def __init__(self, key_id, challenge, ephemeral_derivation_salt, ephemeral_authentication_key, ephemeral_encryption_key, created_at):
         self.key_id = key_id
         self.challenge = challenge
         self.ephemeral_derivation_salt = ephemeral_derivation_salt
-        self.ephemeral_secret_key = ephemeral_secret_key
+        self.ephemeral_authentication_key = ephemeral_authentication_key
+        self.ephemeral_encryption_key = ephemeral_encryption_key
         self.created_at = created_at
 
 
