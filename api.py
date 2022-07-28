@@ -61,7 +61,7 @@ class SecretKeyManagement(Resource):
     @staticmethod
     def put():
         parser = reqparse.RequestParser()
-        parser.add_argument('node_id', type=int, required=True, help='node_id must be an integer and cannot be blank')
+        parser.add_argument('node_id', type=int, required=True, help='node_id must be an integer and cannot be blank', location='args')
         parser.add_argument('derivation_salt', required=True, help='derivation_salt cannot be blank')
         parser.add_argument('signing_key', required=True, help='signing_key cannot be blank')
         parser.add_argument('encryption_key', required=True, help='encryption_key cannot be blank')
@@ -72,6 +72,8 @@ class SecretKeyManagement(Resource):
         derivation_salt= args['derivation_salt']
         signing_key = args['signing_key']
         encryption_key = args['encryption_key']
+
+        print(derivation_salt)
 
         try:
             raw_derivation_salt = Base64Encoder.decode(derivation_salt)
@@ -92,7 +94,7 @@ class SecretKeyManagement(Resource):
         db.session.delete(challenge_db)
         db.session.commit()
 
-        if not hmac_auth(challenge_db.signing_key):
+        if not hmac_auth(raw_signing_key):
             return make_response(json.dumps({'Message:': 'Invalid Signature'}), 400)
 
         new_key_id = int(time.time())

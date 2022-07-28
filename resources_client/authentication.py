@@ -17,7 +17,7 @@ def _get_current_timestamp():
 
 
 class HmacAuth(AuthBase):
-    API_KEY_QUERY_PARAM = 'apiKey'
+    API_KEY_QUERY_PARAM = 'node_id'
     SIGNATURE_HTTP_HEADER = 'X-Auth-Signature'
     TIMESTAMP_HTTP_HEADER = 'X-Auth-Timestamp'
     VERSION_HTTP_HEADER = 'X-Auth-Version'

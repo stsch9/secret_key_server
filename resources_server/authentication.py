@@ -14,6 +14,9 @@ def hmac_auth(secret_key):
     path = request.full_path
     content = request.data
 
+    print(content)
+    print(path)
+
     message = bytearray(method, 'utf-8') + \
               bytearray(SIGNATURE_DELIM, 'utf-8') + \
               bytearray(timestamp, 'utf-8') + \
@@ -24,4 +27,4 @@ def hmac_auth(secret_key):
         message += bytearray(SIGNATURE_DELIM, 'utf-8') + content # bytearray(content, 'utf-8')
 
     # https://libsodium.gitbook.io/doc/helpers#constant-time-test-for-equality
-    return sodium_memcmp(hmac.new(key=bytes.fromhex(secret_key), msg=message, digestmod=sha256).digest(), bytes.fromhex(x_auth_signature))
+    return sodium_memcmp(hmac.new(key=secret_key, msg=message, digestmod=sha256).digest(), bytes.fromhex(x_auth_signature))
