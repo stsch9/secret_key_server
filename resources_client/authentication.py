@@ -1,8 +1,6 @@
-import base64
 import time
-import hmac
-from hashlib import sha256
 from requests.auth import AuthBase
+from cryptography.hazmat.primitives import hashes, hmac
 
 try:
     from urlparse import parse_qs, urlsplit, urlunsplit
@@ -24,9 +22,10 @@ class HmacAuth(AuthBase):
     SIGNATURE_DELIM = '\n'
     VERSION_1 = '1'
 
-    def __init__(self, api_key, secret_key):
+    def __init__(self, api_key, secret_key, challenge):
         self.api_key = api_key
         self.secret_key = secret_key
+        self.challenge = challenge
 
     def __call__(self, request):
         self._encode(request)
@@ -63,12 +62,14 @@ class HmacAuth(AuthBase):
                   bytearray(HmacAuth.SIGNATURE_DELIM, 'utf-8') + \
                   bytearray(timestamp, 'utf-8') + \
                   bytearray(HmacAuth.SIGNATURE_DELIM, 'utf-8') + \
-                  bytearray(path, 'utf-8')
+                  bytearray(path, 'utf-8') + \
+                  bytearray(HmacAuth.SIGNATURE_DELIM, 'utf-8') + \
+                  self.challenge
 
         if content:
             message += bytearray(HmacAuth.SIGNATURE_DELIM, 'utf-8') + bytearray(content, 'utf-8')
 
         # Create the signature
-        #digest = hmac.new(key=bytearray(self.secret_key, 'utf-8'), msg=message, digestmod=sha256).digest()
-        #return base64.urlsafe_b64encode(digest).strip()
-        return hmac.new(key=self.secret_key, msg=message, digestmod=sha256).hexdigest()
+        h = hmac.HMAC(key=self.secret_key, algorithm=hashes.SHA256())
+        h.update(message)
+        return h.finalize().hex()
