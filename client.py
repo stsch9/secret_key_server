@@ -93,7 +93,7 @@ params = {"node_id": 1}
 response = requests.get("http://127.0.0.1:5000/api/validate_secret_key", params=params, headers=headers)
 print(response.json())
 h = hmac.HMAC(key=raw_signing_key, algorithm=hashes.SHA256())
-h.update(str(response.get('key_id')).encode())
+h.update(str(response.json().get('key_id')).encode())
 print(Base64Encoder.encode(h.finalize()).decode('utf-8'))
 
 ####################################################
@@ -109,7 +109,7 @@ print(response.json())
 print("----------------------")
 print("add user_key")
 
-raw_challenge = Base64Encoder.decode(response.get('challenge'))
+raw_challenge = Base64Encoder.decode(response.json().get('challenge'))
 
 headers = {"accept": "application/json",
            "Content-Type": "application/json;charset=UTF-8"}
@@ -137,7 +137,7 @@ print(response.json())
 print("----------------------")
 print("change user_key")
 
-raw_challenge = Base64Encoder.decode(response.get('challenge'))
+raw_challenge = Base64Encoder.decode(response.json().get('challenge'))
 plain_data = b'{"derivation_salt":"' + Base64Encoder.encode(new_raw_salt) + b'",' + \
     b'"signing_key":"' + Base64Encoder.encode(new_raw_signing_key) + b'",' + \
     b'"encryption_key":"' + Base64Encoder.encode(new_raw_encryption_key) + b'",' + \
