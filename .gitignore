@@ -107,6 +107,9 @@ celerybeat.pid
 # Database
 database.db
 
+# test script
+test.py
+
 # Environments
 .env
 .venv

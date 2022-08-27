@@ -3,13 +3,14 @@ import json
 import config
 import time
 from flask_restful import Resource, reqparse
-from model import SecretKeys, SecretKeysSchema, Challenges, ChallengesSchema, Users, UsersSchema, UserKeys, UserKeysSchema
+from model import SecretKeys, SecretKeysSchema, Challenges, ChallengesSchema, Users, UsersSchema, UserKeys, UserKeysSchema, CA
 from nacl.utils import random
 from nacl.encoding import Base64Encoder
 import nacl.secret
 import nacl.exceptions
 from resources_server.authentication import hmac_auth
 from cryptography.hazmat.primitives import hashes, hmac
+from oblivious import sodium
 
 secret_key_schema = SecretKeysSchema()
 challenges_schema = ChallengesSchema()
@@ -338,9 +339,9 @@ class UserManagement(Resource):
 
         # test public key
         if not public_key:
-            user = Users(user_id, None)
+            user = Users(user_id, None, None)
         else:
-            user = Users(user_id, public_key)
+            user = Users(user_id, public_key, None)
 
         try:
             db.session.add(user)
@@ -349,6 +350,78 @@ class UserManagement(Resource):
         except:
             return make_response(json.dumps({'ERROR:': f'Adding user {user_id} failed'}),
                                  500)
+
+
+class PrivateKeyManagement(Resource):
+    @staticmethod
+    def get():
+        parser = reqparse.RequestParser()
+        parser.add_argument('user_id', type=int, required=True, help='user_id must be an integer and cannot be blank',
+                            location='args')
+        parser.add_argument('blinded_element', required=True, help='blinded_element and cannot be blank',
+                            location='args')
+        parser.add_argument('enc_mask', required=True, help='enc_mask and cannot be blank',
+                            location='args')
+        args = parser.parse_args()
+        user_id = args['user_id']
+        blinded_element = args['blinded_element']
+        enc_mask = args['enc_mask']
+
+        try:
+            raw_blinded_element = Base64Encoder.decode(blinded_element)
+            raw_enc_mask = Base64Encoder.decode(enc_mask)
+        except:
+            return make_response(json.dumps({'Message:': 'Not valid datas'}), 400)
+
+        if len(raw_blinded_element) != 32 or len(raw_enc_mask) != 72:
+            return make_response(json.dumps({'Message:': 'Not valid datas'}), 400)
+
+        user_db = Users.query.get(user_id)
+        if not user_db:
+            return make_response(json.dumps({'INFO:': f'User {user_id} does not exists.'}), 400)
+
+        if not user_db.private_key_mask:
+            return make_response(json.dumps({'INFO:': f'Mask for user {user_id} does not exists.'}), 400)
+
+        ca_db = CA.query.get('secret_mask_key')
+        try:
+            box = nacl.secret.SecretBox(Base64Encoder.decode(ca_db.ca_value))
+            raw_mask = box.decrypt(raw_enc_mask)
+        except nacl.exceptions.CryptoError:
+            return make_response(json.dumps({'ERROR:': f'Decryption of mask failed.'}), 500)
+
+        try:
+            raw_evaluated_element = sodium.mul(raw_mask, raw_blinded_element)
+            return make_response(
+                json.dumps({'evaluated_element': Base64Encoder.encode(raw_evaluated_element).decode('utf-8')}))
+        except:
+            return make_response(json.dumps({'ERROR:': f'Calculating evaluated_element failed.'}), 500)
+
+    @staticmethod
+    def post():
+        parser = reqparse.RequestParser()
+        parser.add_argument('user_id', type=int, required=True, help='user_id must be an integer and cannot be blank')
+        args = parser.parse_args()
+        user_id = args['user_id']
+
+        user_db = Users.query.get(user_id)
+        if not user_db:
+            return make_response(json.dumps({'INFO:': f'User {user_id} does not exists.'}), 400)
+
+        if user_db.private_key_mask:
+            return make_response(json.dumps({'INFO:': f'Mask for user {user_id} already exists.'}), 400)
+
+        ca_db = CA.query.get('secret_mask_key')
+        try:
+            box = nacl.secret.SecretBox(Base64Encoder.decode(ca_db.ca_value))
+            raw_mask = sodium.rnd()
+            raw_enc_mask = box.encrypt(raw_mask)
+        except nacl.exceptions.CryptoError:
+            return make_response(json.dumps({'ERROR:': f'Encryption of mask failed.'}), 500)
+
+        user_db.private_key_mask = True
+        db.session.commit()
+        return make_response(json.dumps({'enc_mask': Base64Encoder.encode(raw_enc_mask).decode('utf-8')}))
 
 
 api = config.api
@@ -360,6 +433,7 @@ api.add_resource(ValidateKeyManagement, '/api/validate_secret_key')
 api.add_resource(ChallengeResponseManagement, '/api/challenge')
 api.add_resource(UserManagement, '/api/user')
 api.add_resource(UserKeyManagement, '/api/user_keys')
+api.add_resource(PrivateKeyManagement, '/api/private_key')
 
 if __name__ == '__main__':
     app.run(debug=True)

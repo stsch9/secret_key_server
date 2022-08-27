@@ -12,7 +12,8 @@ class SecretKeys(db.Model):
     public_key = db.Column(db.String(32))
     created_at = db.Column(db.Integer)
 
-    def __init__(self, node_id, key_id, derivation_salt, signing_key, encryption_key, encrypted_private_key, public_key, created_at):
+    def __init__(self, node_id, key_id, derivation_salt, signing_key, encryption_key, encrypted_private_key, public_key,
+                 created_at):
         self.node_id = node_id
         self.key_id = key_id
         self.derivation_salt = derivation_salt
@@ -22,9 +23,12 @@ class SecretKeys(db.Model):
         self.public_key = public_key
         self.created_at = created_at
 
+
 class SecretKeysSchema(ma.Schema):
     class Meta:
-        fields = ('node_id', 'key_id', 'derivation_salt', 'signing_key', 'encryption_key', 'encrypted_private_key', 'public_key', 'created_at')
+        fields = (
+        'node_id', 'key_id', 'derivation_salt', 'signing_key', 'encryption_key', 'encrypted_private_key', 'public_key',
+        'created_at')
 
 
 class Challenges(db.Model):
@@ -38,6 +42,7 @@ class Challenges(db.Model):
         self.challenge = challenge
         self.created_at = created_at
 
+
 class ChallengesSchema(ma.Schema):
     class Meta:
         fields = ('key_id', 'challenge', 'created_at')
@@ -47,10 +52,12 @@ class Users(db.Model):
     __tablename__ = "users"
     user_id = db.Column(db.Integer, primary_key=True)
     public_key = db.Column(db.String(32))
+    private_key_mask = db.Column(db.String(32))
 
-    def __init__(self, user_id, public_key):
+    def __init__(self, user_id, public_key, private_key_mask):
         self.user_id = user_id
         self.public_key = public_key
+        self.private_key_mask = private_key_mask
 
 
 class UsersSchema(ma.Schema):
@@ -73,3 +80,13 @@ class UserKeys(db.Model):
 class UserKeysSchema(ma.Schema):
     class Meta:
         fields = ('user_id', 'node_id', 'secret_key')
+
+
+class CA(db.Model):
+    __tablename__ = "ca"
+    ca_key = db.Column(db.String(32), primary_key=True)
+    ca_value = db.Column(db.String(32))
+
+    def __init__(self, ca_key, ca_value):
+        self.ca_key = ca_key
+        self.ca_value = ca_value
