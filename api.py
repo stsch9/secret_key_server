@@ -436,4 +436,9 @@ api.add_resource(UserKeyManagement, '/api/user_keys')
 api.add_resource(PrivateKeyManagement, '/api/private_key')
 
 if __name__ == '__main__':
+    if not CA.query.get('secret_mask_key'):
+        raw_secret_mask_key = random()
+        key_value = CA('secret_mask_key', Base64Encoder.encode(raw_secret_mask_key).decode('utf-8'))
+        db.session.add(key_value)
+        db.session.commit()
     app.run(debug=True)
