@@ -6,6 +6,8 @@ from cryptography.hazmat.primitives import hashes, hmac
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from resources_client.authentication import HmacAuth
 from nacl.public import PrivateKey
+from nacl.hash import sha512
+from oblivious import sodium
 import json
 
 raw_secret_key = b'\xf4\xc4\xccp\xec\xc4o\x93L\x01j\x8c`E\xa7\x91\x0f\xf8_w\x19&\xf3\x91P{I\xb7\xcb\x8aD^'
@@ -157,6 +159,37 @@ data = {"encrypted_data": Base64Encoder.encode(enc_data).decode('utf-8')}
 response = requests.put("http://127.0.0.1:5000/api/user_keys", auth=HmacAuth(1, raw_signing_key, raw_challenge),
                         data=json.dumps(data), params=params, headers=headers)
 
+print(response.json())
+print(response.request.url)
+print(response.request.body)
+print(response.request.headers)
+
+#####################################################
+print("----------------------")
+print("set encrypted mask")
+
+headers = {"accept": "application/json",
+           "Content-Type": "application/json;charset=UTF-8"}
+data = {"user_id": 1}
+
+response = requests.post("http://127.0.0.1:5000/api/private_key", data=json.dumps(data), headers=headers)
+print(response.json())
+enc_mask = response.json().get('enc_mask')
+
+#####################################################
+print("----------------------")
+print("get private key")
+user_id = 1
+user_id.to_bytes(4, byteorder='big')
+password = "test"
+px = sodium.pnt(sha512(user_id.to_bytes(4, byteorder='big') + password.encode('utf-8'), encoder=RawEncoder))
+r = sodium.rnd()
+a = sodium.mul(r, px)
+
+headers = {"accept": "application/json"}
+params = {"blinded_element": Base64Encoder.encode(a).decode('utf-8'),
+          "enc_mask": enc_mask}
+response = requests.get("http://127.0.0.1:5000/api/private_key", params=params, headers=headers)
 print(response.json())
 print(response.request.url)
 print(response.request.body)

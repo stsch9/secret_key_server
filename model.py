@@ -90,3 +90,15 @@ class CA(db.Model):
     def __init__(self, ca_key, ca_value):
         self.ca_key = ca_key
         self.ca_value = ca_value
+
+
+class Masks(db.Model):
+    __tablename__ = "masks"
+    mask_id = db.Column(db.Integer, primary_key=True)
+    last_try = db.Column(db.Integer)
+    second_last_try = db.Column(db.Integer)
+
+    def __init__(self, mask_id, last_try, second_last_try):
+        self.mask_id = mask_id
+        self.last_try = last_try
+        self.second_last_try = second_last_try
