@@ -11,6 +11,7 @@ import nacl.exceptions
 from resources_server.authentication import hmac_auth
 from cryptography.hazmat.primitives import hashes, hmac
 from oblivious import sodium
+from oprf.oprf_ristretto25519_sha512 import BlindEvaluate
 
 secret_key_schema = SecretKeysSchema()
 challenges_schema = ChallengesSchema()
@@ -383,24 +384,27 @@ class PrivateKeyManagement(Resource):
         except nacl.exceptions.CryptoError:
             return make_response(json.dumps({'ERROR:': f'Decryption of mask failed.'}), 500)
 
-        mask_id = raw_mask_token[:4]
+        raw_mask_id = raw_mask_token[:4]
         raw_mask = raw_mask_token[4:]
+
+        mask_id = int.from_bytes(raw_mask_id, "big")
 
         mask_db = Masks.query.get(mask_id)
         if not mask_db:
             return make_response(json.dumps({'INFO:': f'Mask {mask_id} does not exists.'}), 400)
 
         # Check last two tries
-        time_diff = int(time.time()) - mask_db.second_last_try
-        if time_diff < 5 * 60 * 1000:
-            return make_response(json.dumps({'INFO:': f'Too many tries in last 5 min.'}), 400)
+        if mask_db.second_last_try:
+            time_diff = int(time.time()) - mask_db.second_last_try
+            if time_diff < 5 * 60 * 1000:
+                return make_response(json.dumps({'INFO:': f'Too many tries in last 5 min.'}), 400)
 
         try:
             mask_db.second_last_try = mask_db.last_try
             mask_db.last_try = int(time.time())
             db.session.commit()
 
-            raw_evaluated_element = sodium.mul(raw_mask, raw_blinded_element)
+            raw_evaluated_element = BlindEvaluate(raw_mask, raw_blinded_element)
             return make_response(
                 json.dumps({'evaluated_element': Base64Encoder.encode(raw_evaluated_element).decode('utf-8')}))
         except:

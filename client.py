@@ -8,6 +8,7 @@ from resources_client.authentication import HmacAuth
 from nacl.public import PrivateKey
 from nacl.hash import sha512
 from oblivious import sodium
+from oprf.oprf_ristretto25519_sha512 import Blind, Finalize
 import json
 
 raw_secret_key = b'\xf4\xc4\xccp\xec\xc4o\x93L\x01j\x8c`E\xa7\x91\x0f\xf8_w\x19&\xf3\x91P{I\xb7\xcb\x8aD^'
@@ -182,15 +183,18 @@ print("get private key")
 user_id = 1
 user_id.to_bytes(4, byteorder='big')
 password = "test"
-px = sodium.pnt(sha512(user_id.to_bytes(4, byteorder='big') + password.encode('utf-8'), encoder=RawEncoder))
-r = sodium.rnd()
-a = sodium.mul(r, px)
+input = user_id.to_bytes(4, byteorder='big') + password.encode('utf-8')
+blind, blindedElement = Blind(input)
 
 headers = {"accept": "application/json"}
-params = {"blinded_element": Base64Encoder.encode(a).decode('utf-8'),
+params = {"blinded_element": Base64Encoder.encode(blindedElement).decode('utf-8'),
           "enc_mask": enc_mask}
 response = requests.get("http://127.0.0.1:5000/api/private_key", params=params, headers=headers)
 print(response.json())
 print(response.request.url)
 print(response.request.body)
 print(response.request.headers)
+
+evaluated_element = response.json().get('evaluated_element')
+
+secret = Finalize(input, blind, Base64Encoder.decode(evaluated_element))
