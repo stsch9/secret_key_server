@@ -8,6 +8,7 @@ from resources_client.authentication import HmacAuth
 from nacl.public import PrivateKey
 from nacl.hash import sha512
 from oblivious import sodium
+from SecureString import clearmem
 from oprf.oprf_ristretto25519_sha512 import Blind, Finalize
 import json
 
@@ -53,6 +54,7 @@ print('new encryption key: ' + Base64Encoder.encode(new_raw_encryption_key).deco
 print('new signing key: ' + Base64Encoder.encode(new_raw_signing_key).decode('utf-8'))
 
 ###################################################
+
 print("----------------------")
 print("add node")
 
@@ -67,6 +69,41 @@ data = {"node_id": 1,
 
 response = requests.post("http://127.0.0.1:5000/api/key", data=json.dumps(data), headers=headers)
 print(response.json())
+
+def add_node(node_id, info = b"secret_key_server"):
+    raw_secret_key = random()
+    raw_salt = random()
+
+    hkdf = HKDF(
+        algorithm=hashes.SHA256(),
+        length=64,
+        salt=raw_salt,
+        info=info,
+    )
+
+    raw_key = hkdf.derive(raw_secret_key)
+    raw_signing_key = raw_key[:32]
+    raw_encryption_key = raw_key[32:]
+
+    public_key = raw_private_key.public_key.encode(encoder=Base64Encoder).decode('utf-8')
+    box = nacl.secret.SecretBox(raw_secret_key)
+    encrypted_private_key = Base64Encoder.encode(box.encrypt(raw_private_key.encode(encoder=RawEncoder))).decode(
+        'utf-8')
+
+    headers = {"accept": "application/json",
+               "Content-Type": "application/json;charset=UTF-8"}
+    data = {"node_id": node_id,
+            "derivation_salt": Base64Encoder.encode(raw_salt).decode('utf-8'),
+            "signing_key": Base64Encoder.encode(raw_signing_key).decode('utf-8'),
+            "encryption_key": Base64Encoder.encode(raw_encryption_key).decode('utf-8'),
+            "encrypted_private_key": encrypted_private_key,
+            "public_key": public_key}
+
+    response = requests.post("http://127.0.0.1:5000/api/key", data=json.dumps(data), headers=headers)
+    if response.status_code == 200:
+        return response.json(), raw_secret_key
+    else:
+        raise Exception('Response Code: ' + response.status_code )
 
 ####################################################
 print("----------------------")
