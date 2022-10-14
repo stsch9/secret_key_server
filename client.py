@@ -11,6 +11,7 @@ from SecureString import clearmem
 from oprf.oprf_ristretto25519_sha512 import Blind, Finalize
 import json
 
+
 def signing_encryption_key_derivation(raw_secret_key, raw_salt, info = b"secret_key_server"):
     hkdf = HKDF(
         algorithm=hashes.SHA256(),
@@ -125,7 +126,6 @@ def add_user_key(challenge, node_id, user_id, derivation_salt, secret_key, user_
     encrypted_secret_key = box.encrypt(raw_secret_key, encoder=Base64Encoder).decode()
 
     raw_signing_key, raw_encryption_key = signing_encryption_key_derivation(raw_secret_key, raw_salt)
-    #clearmem(raw_secret_key)
     clearmem(raw_encryption_key)
 
     headers = {"accept": "application/json",
