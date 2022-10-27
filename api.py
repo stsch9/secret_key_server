@@ -72,69 +72,6 @@ class SecretKeyManagement(Resource):
                 db.session.commit()
                 return make_response(json.dumps({'Message:': f'Keys for node_id {node_id} added'}), 200)
 
-    @staticmethod
-    def put():
-        parser = reqparse.RequestParser()
-        parser.add_argument('node_id', type=int, required=True, help='node_id must be an integer and cannot be blank', location='args')
-        parser.add_argument('derivation_salt', required=True, help='derivation_salt cannot be blank')
-        parser.add_argument('encrypted_keys', required=True, help='encrypted_keys cannot be blank')
-        parser.add_argument('encrypted_private_key', required=True, help='encrypted_private_key cannot be blank')
-        parser.add_argument('public_key', required=True, help='public_key cannot be blank')
-        parser.add_argument('X-Auth-Signature', required=True, location='headers')
-        parser.add_argument('X-Auth-Timestamp', required=True, location='headers')
-        args = parser.parse_args()
-        node_id = args['node_id']
-        derivation_salt= args['derivation_salt']
-        encrypted_keys = args['encrypted_keys']
-        encrypted_private_key = args['encrypted_private_key']
-        public_key = args['public_key']
-
-        try:
-            raw_derivation_salt = Base64Encoder.decode(derivation_salt)
-            raw_encrypted_keys = Base64Encoder.decode(encrypted_keys)
-            raw_encrypted_private_key = Base64Encoder.decode(encrypted_private_key)
-            raw_public_key = Base64Encoder.decode(public_key)
-        except:
-            return make_response(json.dumps({'Message:': 'Not valid datas'}), 400)
-
-        if len(raw_derivation_salt) != 32 or len(raw_encrypted_keys) != 104 or len(raw_encrypted_private_key) != 72 or len(raw_public_key) != 32:
-            return make_response(json.dumps({'Message:': 'Not valid datas'}), 400)
-
-        secret_key_db = SecretKeys.query.get(node_id)
-        if not secret_key_db:
-            return make_response(json.dumps({'INFO:': f'Keys for node_id {node_id} does not exist.'}), 400)
-
-        challenge_db = Challenges.query.get(secret_key_db.key_id)
-        # to prevent replay attacks
-        db.session.delete(challenge_db)
-        db.session.commit()
-
-        # decrypting of signing an encryption key
-        raw_old_signing_key = Base64Encoder.decode(secret_key_db.signing_key)
-        raw_old_encryption_key = Base64Encoder.decode(secret_key_db.encryption_key)
-
-        try:
-            box = nacl.secret.SecretBox(raw_old_encryption_key)
-            new_raw_keys = box.decrypt(raw_encrypted_keys)
-            signing_key = Base64Encoder.encode(new_raw_keys[:32]).decode('utf-8')
-            encryption_key = Base64Encoder.encode(new_raw_keys[32:]).decode('utf-8')
-        except nacl.exceptions.CryptoError:
-            return make_response(json.dumps({'ERROR:': f'Decryption of Keys failed.'}), 500)
-
-        if not hmac_auth(raw_old_signing_key, Base64Encoder.decode(challenge_db.challenge)):
-            return make_response(json.dumps({'Message:': 'Invalid Signature'}), 400)
-
-        new_key_id = int(time.time())
-        secret_key_db.key_id = new_key_id
-        secret_key_db.derivation_salt = derivation_salt
-        secret_key_db.signing_key = signing_key
-        secret_key_db.encryption_key = encryption_key
-        secret_key_db.encrypted_private_key = encrypted_private_key
-        secret_key_db.public_key = public_key
-        secret_key_db.created_at = new_key_id
-        db.session.commit()
-        return make_response(json.dumps({'Message:': f'secret keys for node_id {node_id} altered'}), 200)
-
 
 class UserKeyManagement(Resource):
     @staticmethod
@@ -257,12 +194,17 @@ class UserKeyManagement(Resource):
                 new_user_key = UserKeys(i['user_id'], node_id, i['secret_key'])
                 db.session.add(new_user_key)
 
+        # andere User löschen?
+
         # change derivation_salt, etc.
+        new_key_id = int(time.time())
+        secret_key_db.key_id = new_key_id
         secret_key_db.derivation_salt = new_data['derivation_salt']
         secret_key_db.signing_key = new_data['signing_key']
         secret_key_db.encryption_key = new_data['encryption_key']
         secret_key_db.encrypted_private_key = new_data['encrypted_private_key']
         secret_key_db.public_key = new_data['public_key']
+        secret_key_db.created_at = new_key_id
 
         db.session.commit()
 
