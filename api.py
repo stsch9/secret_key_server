@@ -2,6 +2,7 @@ from flask import make_response
 import json
 import config
 import time
+import pyseto
 from flask_restful import Resource, reqparse
 from model import SecretKeys, SecretKeysSchema, Challenges, ChallengesSchema, Users, UsersSchema, UserKeys, UserKeysSchema, CA, Masks
 from nacl.utils import random
@@ -28,6 +29,8 @@ class SecretKeyManagement(Resource):
     def post():
         parser = reqparse.RequestParser()
         parser.add_argument('node_id', type=int, required=True, help='node_id must be an integer and cannot be blank')
+        parser.add_argument('user_id', type=int, required=True, help='user_id must be an integer and cannot be blank')
+        parser.add_argument('encrypted_secret_key', required=True, help='encrypted_secret_key cannot be blank')
         parser.add_argument('derivation_salt', required=True, help='derivation_salt cannot be blank')
         parser.add_argument('signing_key', required=True, help='signing_key cannot be blank')
         parser.add_argument('encryption_key', required=True, help='encryption_key cannot be blank')
@@ -35,42 +38,54 @@ class SecretKeyManagement(Resource):
         parser.add_argument('public_key', required=True, help='public_key cannot be blank')
         args = parser.parse_args()
         node_id = args['node_id']
+        user_id = args['user_id']
+        encrypted_secret_key = args['encrypted_secret_key']
+        derivation_salt = args['derivation_salt']
+        signing_key = args['signing_key']
+        encryption_key = args['encryption_key']
+        encrypted_private_key = args['encrypted_private_key']
+        public_key = args['public_key']
 
+        # Pre-checks
+        ## check input data are valid
+        try:
+            raw_encrypted_secret_key = Base64Encoder.decode(encrypted_secret_key)
+            raw_signing_key = Base64Encoder.decode(signing_key)
+            raw_encryption_key = Base64Encoder.decode(encryption_key)
+            raw_encrypted_private_key = Base64Encoder.decode(encrypted_private_key)
+            raw_public_key = Base64Encoder.decode(public_key)
+            raw_derivation_salt = Base64Encoder.decode(derivation_salt)
+        except:
+            return make_response(json.dumps({'Message:': 'Not valid data'}), 400)
+
+
+        if len(raw_signing_key) != 32 or len(raw_encryption_key) != 32 or len(raw_encrypted_private_key) != 72 or \
+                len(raw_public_key) != 32 or len(raw_encrypted_secret_key) != 72 or len(raw_derivation_salt) != 32:
+            return make_response(json.dumps({'Message:': 'Not valid input data'}), 400)
+
+        ## check database entries for node_id and user_id
         secret_key_db = SecretKeys.query.get(node_id)
+        user_db = Users.query.get(user_id)
+
+        if not user_db:
+            return make_response(json.dumps({'INFO:': f'User_id {user_id} not found.'}), 400)
+
         if secret_key_db:
             return make_response(json.dumps({'INFO:': f'Keys for node_id {node_id} already exists.'}), 400)
-        else:
-            derivation_salt = args['derivation_salt']
-            signing_key = args['signing_key']
-            encryption_key = args['encryption_key']
-            encrypted_private_key = args['encrypted_private_key']
-            public_key = args['public_key']
-            created_at = int(time.time())
-            key_id = created_at
 
-            try:
-                raw_signing_key = Base64Encoder.decode(signing_key)
-                raw_encryption_key = Base64Encoder.decode(encryption_key)
-                raw_encrypted_private_key = Base64Encoder.decode(encrypted_private_key)
-                raw_public_key = Base64Encoder.decode(public_key)
-            except:
-                return make_response(json.dumps({'Message:': 'Not valid keys'}), 400)
+        # add new db entries
+        created_at = int(time.time())
+        key_id = created_at
 
-            try:
-                raw_derivation_salt = Base64Encoder.decode(derivation_salt)
-            except:
-                return make_response(json.dumps({'Message:': 'Not a valid derivation salt'}), 400)
+        secret_key_new_db = SecretKeys(node_id, key_id, derivation_salt, signing_key, encryption_key,
+                                               encrypted_private_key, public_key, created_at)
+        db.session.add(secret_key_new_db)
 
-            if len(raw_signing_key) != 32 or len(raw_encryption_key) != 32 or len(raw_encrypted_private_key) != 72 or len(raw_public_key) != 32:
-                return make_response(json.dumps({'Message:': 'Not valid keys'}), 400)
-            elif len(raw_derivation_salt) != 32:
-                return make_response(json.dumps({'Message:': 'Not a valid derivation salt'}), 400)
-            else:
-                secret_key_new_db = SecretKeys(node_id, key_id, derivation_salt, signing_key, encryption_key, encrypted_private_key, public_key, created_at)
-                db.session.add(secret_key_new_db)
+        user_keys_new_db = UserKeys(node_id, user_id, encrypted_secret_key)
+        db.session.add(user_keys_new_db)
 
-                db.session.commit()
-                return make_response(json.dumps({'Message:': f'Keys for node_id {node_id} added'}), 200)
+        db.session.commit()
+        return make_response(json.dumps({'Message:': f'Keys for node_id {node_id} added'}), 200)
 
 
 class UserKeyManagement(Resource):
@@ -78,23 +93,12 @@ class UserKeyManagement(Resource):
     def post():
         parser = reqparse.RequestParser()
         parser.add_argument('node_id', type=int, required=True, help='node_id must be an integer and cannot be blank', location='args')
-        parser.add_argument('user_id', type=int, required=True, help='user_id must be an integer and cannot be blank')
-        parser.add_argument('secret_key', required=True, help='secret_key cannot be blank')
+        parser.add_argument('token', type=str, required=True, help='token must be an str and cannot be blank')
         parser.add_argument('X-Auth-Signature', required=True, location='headers')
         parser.add_argument('X-Auth-Timestamp', required=True, location='headers')
         args = parser.parse_args()
         node_id = args['node_id']
-        user_id = args['user_id']
-        encrypted_secret_key = args['secret_key']
-
-        # check input data a valid
-        try:
-            raw_encrypted_secret_key = Base64Encoder.decode(encrypted_secret_key)
-        except:
-            return make_response(json.dumps({'Message:': 'Not valid secret key'}), 400)
-
-        if len(raw_encrypted_secret_key) != 72:
-            return make_response(json.dumps({'Message:': 'Not valid key'}), 400)
+        token = args['token']
 
         # check secret key authentication
         secret_key_db = SecretKeys.query.get(node_id)
@@ -104,15 +108,41 @@ class UserKeyManagement(Resource):
         challenge_db = Challenges.query.get(secret_key_db.key_id)
         if not challenge_db:
             return make_response(json.dumps({'INFO:': 'no challenge found'}), 400)
-        # to prevent replay attacks
+        # to prevent replay attacks, delete challenge
         db.session.delete(challenge_db)
         db.session.commit()
 
+        # check signature
         raw_signing_key = Base64Encoder.decode(secret_key_db.signing_key)
 
         if not hmac_auth(raw_signing_key, Base64Encoder.decode(challenge_db.challenge)):
             return make_response(json.dumps({'Message:': 'Invalid Signature'}), 400)
 
+        # decrypt token
+        try:
+            raw_encryption_key = Base64Encoder.decode(secret_key_db.encryption_key)
+            pyseto_key = pyseto.Key.new(version=4, purpose="local", key=raw_encryption_key)
+            pyseto_decode = pyseto.decode(pyseto_key, token, deserializer=json)
+        except pyseto.DecryptError:
+            return make_response(json.dumps({'ERROR:': f'Decrypting token failed.'}), 500)
+
+        # check payload
+        for i in ["user_id", "encrypted_secret_key"]:
+            if i not in pyseto_decode.payload:
+                return make_response(json.dumps({'ERROR:': f'{i} missing'}), 400)
+
+        user_id = pyseto_decode.payload["user_id"]
+        encrypted_secret_key = pyseto_decode.payload["encrypted_secret_key"]
+
+        try:
+            raw_encrypted_secret_key = Base64Encoder.decode(encrypted_secret_key)
+        except:
+            return make_response(json.dumps({'Message:': 'Not valid data'}), 400)
+
+        if len(raw_encrypted_secret_key) != 72:
+            return make_response(json.dumps({'Message:': 'Not valid input data'}), 400)
+
+        # check db entries
         user_keys_db = UserKeys.query.get((node_id, user_id))
         if user_keys_db:
             return make_response(json.dumps({'INFO:': f'Key for node_id {node_id} and user {user_id} already exists.'}), 400)
@@ -131,12 +161,12 @@ class UserKeyManagement(Resource):
         parser = reqparse.RequestParser()
         parser.add_argument('node_id', type=int, required=True, help='node_id must be an integer and cannot be blank',
                             location='args')
-        parser.add_argument('encrypted_data', required=True, help='encrypted_data cannot be blank')# , location='form')
+        parser.add_argument('token', required=True, help='token cannot be blank')# , location='form')
         parser.add_argument('X-Auth-Signature', required=True, location='headers')
         parser.add_argument('X-Auth-Timestamp', required=True, location='headers')
         args = parser.parse_args()
         node_id = args['node_id']
-        encrypted_data = args['encrypted_data']
+        token = args['token']
 
         # check node_id exists
         secret_key_db = SecretKeys.query.get(node_id)
@@ -158,25 +188,24 @@ class UserKeyManagement(Resource):
         if not hmac_auth(raw_old_signing_key, Base64Encoder.decode(challenge_db.challenge)):
             return make_response(json.dumps({'Message:': 'Invalid Signature'}), 400)
 
-        # decrypt body data
+        # decrypt token
         try:
-            box = nacl.secret.SecretBox(raw_old_encryption_key)
-            new_raw_data = box.decrypt(Base64Encoder.decode(encrypted_data))
-        except nacl.exceptions.CryptoError:
-            return make_response(json.dumps({'ERROR:': f'Decryption of Keys failed.'}), 500)
+            pyseto_key = pyseto.Key.new(version=4, purpose="local", key=raw_old_encryption_key)
+            pyseto_decode = pyseto.decode(pyseto_key, token, deserializer=json)
+        except pyseto.DecryptError:
+            return make_response(json.dumps({'ERROR:': f'Decrypting token failed.'}), 500)
 
-        new_data = json.loads(new_raw_data.decode('utf-8'))
-
+        # check payload
         for i in ['derivation_salt', 'signing_key', 'encryption_key', 'encrypted_private_key', 'public_key', 'users']:
-            if i not in new_data:
+            if i not in pyseto_decode.payload:
                 return make_response(json.dumps({'ERROR:': f'{i} missing'}), 400)
 
         try:
-            raw_derivation_salt = Base64Encoder.decode(new_data['derivation_salt'])
-            raw_signing_key = Base64Encoder.decode(new_data['signing_key'])
-            raw_encryption_key = Base64Encoder.decode(new_data['encryption_key'])
-            raw_encrypted_private_key = Base64Encoder.decode(new_data['encrypted_private_key'])
-            raw_public_key = Base64Encoder.decode(new_data['public_key'])
+            raw_derivation_salt = Base64Encoder.decode(pyseto_decode.payload['derivation_salt'])
+            raw_signing_key = Base64Encoder.decode(pyseto_decode.payload['signing_key'])
+            raw_encryption_key = Base64Encoder.decode(pyseto_decode.payload['encryption_key'])
+            raw_encrypted_private_key = Base64Encoder.decode(pyseto_decode.payload['encrypted_private_key'])
+            raw_public_key = Base64Encoder.decode(pyseto_decode.payload['public_key'])
         except:
             return make_response(json.dumps({'Message:': 'Not valid datas'}), 400)
 
@@ -185,11 +214,11 @@ class UserKeyManagement(Resource):
             return make_response(json.dumps({'Message:': 'Not valid datas'}), 400)
 
         # check users
-        users = new_data['users']
+        users = pyseto_decode.payload['users']
         for i in users:
             user_keys_db = UserKeys.query.get((node_id, i['user_id']))
             if user_keys_db:
-                user_keys_db.secret_key = i['secret_key']
+                user_keys_db.secret_key = i['encrypted_secret_key']
             else:
                 new_user_key = UserKeys(i['user_id'], node_id, i['secret_key'])
                 db.session.add(new_user_key)
@@ -199,16 +228,16 @@ class UserKeyManagement(Resource):
         # change derivation_salt, etc.
         new_key_id = int(time.time())
         secret_key_db.key_id = new_key_id
-        secret_key_db.derivation_salt = new_data['derivation_salt']
-        secret_key_db.signing_key = new_data['signing_key']
-        secret_key_db.encryption_key = new_data['encryption_key']
-        secret_key_db.encrypted_private_key = new_data['encrypted_private_key']
-        secret_key_db.public_key = new_data['public_key']
+        secret_key_db.derivation_salt = pyseto_decode.payload['derivation_salt']
+        secret_key_db.signing_key = pyseto_decode.payload['signing_key']
+        secret_key_db.encryption_key = pyseto_decode.payload['encryption_key']
+        secret_key_db.encrypted_private_key = pyseto_decode.payload['encrypted_private_key']
+        secret_key_db.public_key = pyseto_decode.payload['public_key']
         secret_key_db.created_at = new_key_id
 
         db.session.commit()
 
-        return make_response(json.dumps({'Message:': 'Successfully changed user keys.'}), 200)
+        return make_response(json.dumps({'message': 'Successfully changed user keys.'}), 200)
 
 
 class ValidateKeyManagement(Resource):
