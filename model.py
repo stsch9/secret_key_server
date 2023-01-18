@@ -8,27 +8,43 @@ class SecretKeys(db.Model):
     derivation_salt = db.Column(db.String(32))
     signing_key = db.Column(db.String(32))
     encryption_key = db.Column(db.String(32))
-    encrypted_private_key = db.Column(db.String(32))
+    encrypted_intermediate_keys = db.Column(db.String)
     public_key = db.Column(db.String(32))
     created_at = db.Column(db.Integer)
 
-    def __init__(self, node_id, key_id, derivation_salt, signing_key, encryption_key, encrypted_private_key, public_key,
-                 created_at):
+    def __init__(self, node_id, key_id, derivation_salt, signing_key, encryption_key, encrypted_intermediate_keys,
+                 public_key, created_at):
         self.node_id = node_id
         self.key_id = key_id
         self.derivation_salt = derivation_salt
         self.signing_key = signing_key
         self.encryption_key = encryption_key
-        self.encrypted_private_key = encrypted_private_key
+        self.encrypted_intermediate_keys = encrypted_intermediate_keys
         self.public_key = public_key
         self.created_at = created_at
 
 
 class SecretKeysSchema(ma.Schema):
     class Meta:
-        fields = (
-        'node_id', 'key_id', 'derivation_salt', 'signing_key', 'encryption_key', 'encrypted_private_key', 'public_key',
-        'created_at')
+        fields = ('node_id', 'key_id', 'derivation_salt', 'signing_key', 'encryption_key',
+                  'encrypted_intermediate_keys', 'public_key', 'created_at')
+
+
+class FileKeySalts(db.Model):
+    __tablename__ = "file_key_salts"
+    node_id = db.Column(db.Integer, primary_key=True)
+    key_id = db.Column(db.Integer, db.ForeignKey('secret_keys.key_id'))
+    salt = db.Column(db.String())
+
+    def __init__(self, node_id, key_id, salt):
+        self.node_id = node_id
+        self.key_id = key_id
+        self.salt = salt
+
+
+class FileKeySaltsSchema(ma.Schema):
+    class Meta:
+        fields = ('node_id', 'key_id', 'salt')
 
 
 class Challenges(db.Model):
@@ -69,17 +85,17 @@ class UserKeys(db.Model):
     __tablename__ = "user_keys"
     user_id = db.Column(db.Integer, db.ForeignKey('users.user_id'), primary_key=True)
     node_id = db.Column(db.Integer, db.ForeignKey('secret_keys.node_id'), primary_key=True)
-    secret_key = db.Column(db.String(32))
+    encrypted_master_key = db.Column(db.String(72))
 
-    def __init__(self, user_id, node_id, secret_key):
+    def __init__(self, user_id, node_id, encrypted_master_key):
         self.user_id = user_id
         self.node_id = node_id
-        self.secret_key = secret_key
+        self.encrypted_master_key = encrypted_master_key
 
 
 class UserKeysSchema(ma.Schema):
     class Meta:
-        fields = ('user_id', 'node_id', 'secret_key')
+        fields = ('user_id', 'node_id', 'encrypted_master_key')
 
 
 class CA(db.Model):
