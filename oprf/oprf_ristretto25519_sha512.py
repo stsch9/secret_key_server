@@ -81,7 +81,7 @@ contextString = CreateContextString(mode, suitID)
 DST = b'HashToGroup-' + contextString
 
 
-def Blind(input):
+def Blind(input: bytes) -> tuple[bytes, bytes]:
     blind = sodium.rnd()
     inputElement = sodium.pnt(expand_message_xmd(input, DST, 64, hashlib.sha512))
     if inputElement == identity.to_bytes(32, 'big'):
@@ -90,12 +90,12 @@ def Blind(input):
     return blind, blindedElement
 
 
-def BlindEvaluate(skS, blindedElement):
+def BlindEvaluate(skS: bytes, blindedElement: bytes) -> bytes:
     evaluatedElement = sodium.mul(skS, blindedElement)
     return evaluatedElement
 
 
-def Finalize(input, blind, evaluatedElement):
+def Finalize(input: bytes, blind: bytes, evaluatedElement: bytes) -> bytes:
     unblindedElement = sodium.mul(sodium.inv(blind), evaluatedElement)
     hashInput = I2OSP(len(input), 2) + input + I2OSP(len(unblindedElement), 2) + unblindedElement + b'Finalize'
     return sha512(hashInput, encoder=RawEncoder)

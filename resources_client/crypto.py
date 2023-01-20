@@ -195,6 +195,8 @@ def _encrypt_hpke(pkr: bytes, sks: bytes, psk: bytes, msg: bytes) -> tuple[bytes
     enc, sender = suite_s.create_sender_context(pkr=pkr, sks=sks, psk=psk)
     return enc, sender.seal(msg)
 
+
+
 pkR, skR = crypto_kx_keypair()
 pkS, skS = crypto_kx_keypair()
 psk = random()
@@ -202,7 +204,7 @@ master_key = random()
 
 # encrypt master_key
 enc, ct = _encrypt_hpke(pkR, skS, psk, master_key)
-
+exit()
 
 piK, siK = crypto_kx_keypair()
 
