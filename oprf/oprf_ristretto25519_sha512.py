@@ -19,12 +19,33 @@ else:
 
 
 mode = 0x00
-suitID = 0x0001
+suiteID = 0x0001
 # https://datatracker.ietf.org/doc/draft-irtf-cfrg-ristretto255-decaf448/
 identity = 0xe2f2ae0a6abc4e71a884a961c500515f58e30b6aa582dd8db6a65945e08d2d76
 
+
+def HashToScalar(input: bytes) -> bytes:
+    #DST = b"HashToScalar-" + contextString
+    DST = b"DeriveKeyPair" + contextString
+    return sodium.red(expand_message_xmd(input, DST, 64, hashlib.sha512))
+
+
+def DeriveKeyPair(seed: bytes, info: bytes) -> tuple[bytes, bytes]:
+    deriveInput = seed + I2OSP(len(info), 2) + info
+    counter = 0
+    skS = 0
+    while skS == 0:
+        if counter > 255:
+            raise DeriveKeyPairError
+        skS = HashToScalar(deriveInput + I2OSP(counter, 1), )
+        counter = counter + 1
+    pkS = sodium.bas(skS)
+    return skS, pkS
+
+
 def CreateContextString(mode, suiteID):
     return b'VOPRF10-' + I2OSP(mode, 1) + I2OSP(suiteID, 2)
+
 
 def expand_message_xmd(msg, DST, len_in_bytes, hash_fn):
     # block and output sizes in bytes
@@ -77,12 +98,13 @@ def OS2IP(octets, skip_assert=False):
     return ret
 
 
-contextString = CreateContextString(mode, suitID)
-DST = b'HashToGroup-' + contextString
+contextString = CreateContextString(mode, suiteID)
+#DST = b'HashToGroup-' + contextString
 
 
 def Blind(input: bytes) -> tuple[bytes, bytes]:
     blind = sodium.rnd()
+    DST = b'HashToGroup-' + contextString
     inputElement = sodium.pnt(expand_message_xmd(input, DST, 64, hashlib.sha512))
     if inputElement == identity.to_bytes(32, 'big'):
         raise ValueError('Invalid Input')
