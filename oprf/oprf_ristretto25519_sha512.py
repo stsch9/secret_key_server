@@ -33,10 +33,10 @@ def HashToScalar(input: bytes) -> bytes:
 def DeriveKeyPair(seed: bytes, info: bytes) -> tuple[bytes, bytes]:
     deriveInput = seed + I2OSP(len(info), 2) + info
     counter = 0
-    skS = 0
-    while skS == 0:
+    skS = (b'\x00' * 32)
+    while skS == (b'\x00' * 32):
         if counter > 255:
-            raise DeriveKeyPairError
+            raise Exception("Derive Key Pair Error")
         skS = HashToScalar(deriveInput + I2OSP(counter, 1), )
         counter = counter + 1
     pkS = sodium.bas(skS)
