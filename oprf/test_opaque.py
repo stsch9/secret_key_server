@@ -1,7 +1,9 @@
-from opaque import CreateRegistrationRequest, CreateRegistrationResponse, CreateCleartextCredentials, Expand, Extract
-from oprf_ristretto25519_sha512 import DeriveKeyPair, Finalize
+from test_opaque_lib import CreateRegistrationRequest, CreateRegistrationResponse, CreateCleartextCredentials, Expand, Extract, \
+    OPAQUE3DH, CreateCredentialRequest, deserialize_ke1, deserialize_record, Preamble, context
+from oprf_ristretto25519_sha512 import DeriveKeyPair, Finalize, identity, contextString, expand_message_xmd
 from oblivious import sodium
 from cryptography.hazmat.primitives import hashes, hmac
+import hashlib
 
 # adapted functions
 
@@ -26,7 +28,7 @@ def Store(randomized_pwd: bytes, server_public_key: bytes, server_identity=b'', 
 
 
 def FinalizeRegistrationRequest(password: bytes, blind: bytes, evaluated_message: bytes, server_public_key: bytes,
-                                server_identity=b'', client_identity=b'') -> tuple[bytes, bytes, bytes, bytes]:
+                                server_identity=b'', client_identity=b'') -> tuple[bytes, bytes]:
     evaluated_element = evaluated_message
     oprf_output = Finalize(password, blind, evaluated_element)
     print("oprf_output: " + oprf_output.hex())
@@ -36,7 +38,15 @@ def FinalizeRegistrationRequest(password: bytes, blind: bytes, evaluated_message
 
     envelope, client_public_key, masking_key, export_key = \
         Store(randomized_pwd, server_public_key, server_identity, client_identity)
-    return client_public_key, masking_key, envelope, export_key
+    return client_public_key + masking_key + envelope, export_key
+
+def Blind(input: bytes, blind: bytes) -> tuple[bytes, bytes]:
+    DST = b'HashToGroup-' + contextString
+    inputElement = sodium.pnt(expand_message_xmd(input, DST, 64, hashlib.sha512))
+    if inputElement == identity.to_bytes(32, 'big'):
+        raise ValueError('Invalid Input')
+    blindedElement = sodium.mul(blind, inputElement)
+    return blind, blindedElement
 
 # Input Values
 
@@ -53,6 +63,10 @@ credential_identifier = '31323334'
 envelope_nonce = 'ac13171b2f17bc2c74997f0fce1e1f35bec6b91fe2e12dbd323d23ba7a38dfec'
 server_identity = ''
 client_identity = ''
+blind_login = '6ecc102d2e7a7cf49617aad7bbe188556792d4acd60a1a8a8d2b65d4b0790308'
+client_nonce = 'da7e07376d6d6f034cfa9bb537d11b8c6b4238c334333d1f0aebb380cae6a6cc'
+server_keyshare = 'c8c39f573135474c51660b02425bca633e339cec4e1acc69c94dd48497fe4028'
+client_private_keyshare = '22c919134c9bdd9dc0c5ef3450f18b54820f43f646a95223bf4a85b2018c2001'
 
 
 print("server_public_key: " + server_public_key.hex())
@@ -68,7 +82,21 @@ evaluated_message, server_public_key = CreateRegistrationResponse(blinded_messag
                                                                   bytes.fromhex(credential_identifier),
                                                                   bytes.fromhex(oprf_seed))
 
-client_public_key, masking_key, envelope, export_key = FinalizeRegistrationRequest(bytes.fromhex(password), blind, evaluated_message, server_public_key, server_identity=bytes.fromhex(server_identity), client_identity=bytes.fromhex(client_identity))
-print('client_public_key: ' + client_public_key.hex())
+record, export_key = FinalizeRegistrationRequest(bytes.fromhex(password), blind, evaluated_message, server_public_key, server_identity=bytes.fromhex(server_identity), client_identity=bytes.fromhex(client_identity))
+RECORD = deserialize_record(record)
+print('client_public_key: ' + RECORD.client_public_key.hex())
 print('export_key: ' + export_key.hex())
-print('envelop: ' + envelope.hex())
+print('envelop: ' + RECORD.envelope.hex())
+
+# 6. Online Authenticated Key Exchange
+
+client_keyshare = sodium.bas(bytes.fromhex(client_private_keyshare))
+print('client_keyshare: ' + client_keyshare.hex())
+
+ke1 = Blind(bytes.fromhex(password), bytes.fromhex(blind_login))[1] + bytes.fromhex(client_nonce) + client_keyshare
+print('k1: ' + (Blind(bytes.fromhex(password), bytes.fromhex(blind_login))[1] + bytes.fromhex(client_nonce) + client_keyshare).hex())
+
+opache3dh_server = OPAQUE3DH()
+ke2 = opache3dh_server.ServerInit(bytes.fromhex(server_private_key), server_public_key, record,
+                                  bytes.fromhex(credential_identifier), bytes.fromhex(oprf_seed), ke1)
+print(ke2.hex())
