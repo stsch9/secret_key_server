@@ -99,4 +99,4 @@ print('k1: ' + (Blind(bytes.fromhex(password), bytes.fromhex(blind_login))[1] + 
 opache3dh_server = OPAQUE3DH()
 ke2 = opache3dh_server.ServerInit(bytes.fromhex(server_private_key), server_public_key, record,
                                   bytes.fromhex(credential_identifier), bytes.fromhex(oprf_seed), ke1)
-print(ke2.hex())
+print('k2: ' + ke2.hex())
