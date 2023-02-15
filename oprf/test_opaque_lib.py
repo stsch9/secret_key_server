@@ -1,6 +1,6 @@
 # https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-opaque
-
-from oprf_ristretto25519_sha512 import Blind, DeriveKeyPair, BlindEvaluate, Finalize, I2OSP
+import hashlib
+from oprf_ristretto25519_sha512 import DeriveKeyPair, BlindEvaluate, Finalize, I2OSP, contextString, identity, expand_message_xmd
 from cryptography.hazmat.primitives import hashes, hmac
 from cryptography.hazmat.primitives.kdf.hkdf import HKDFExpand
 from cryptography.exceptions import InvalidSignature
@@ -18,6 +18,11 @@ Npk = 32
 Ne = 96
 Noe = 32
 Nx = 64
+
+blind_login = '6ecc102d2e7a7cf49617aad7bbe188556792d4acd60a1a8a8d2b65d4b0790308'
+client_private_keyshare = '22c919134c9bdd9dc0c5ef3450f18b54820f43f646a95223bf4a85b2018c2001'
+blind_registration = '76cfbfe758db884bebb33582331ba9f159720ca8784a2a070a265d9c2d6abe01'
+
 
 context = bytes.fromhex('4f50415155452d504f43')
 
@@ -85,14 +90,18 @@ def Store(randomized_pwd: bytes, server_public_key: bytes, server_identity=b'', 
 
 # 4.1.3. Envelope Recovery
 def Recover(randomized_pwd: bytes, server_public_key: bytes, envelope: bytes, server_identity: bytes,
-            client_identity: bytes) -> tuple[bytes, bytes]:
+            client_identity: bytes) -> tuple[bytes, bytes, bytes]:
     envelope_nonce = envelope[0:Nn]
     envelope_auth_tag = envelope[Nn:]
     auth_key = Expand(randomized_pwd, envelope_nonce + b"AuthKey", Nh)
     export_key = Expand(randomized_pwd, envelope_nonce + b"ExportKey", Nh)
     seed = Expand(randomized_pwd, envelope_nonce + b"PrivateKey", Nseed)
     client_private_key, client_public_key = DeriveKeyPair(seed, b"OPAQUE-DeriveAuthKeyPair")
-
+    # NEUE
+    if len(server_identity) == 0:
+        server_identity = server_public_key
+    if len(client_identity) == 0:
+        client_identity = client_public_key
     cleartext_creds = CreateCleartextCredentials(server_public_key, client_public_key, server_identity, client_identity)
     h = hmac.HMAC(auth_key, hashes.SHA512())
     h.update(envelope_nonce + cleartext_creds)
@@ -101,13 +110,13 @@ def Recover(randomized_pwd: bytes, server_public_key: bytes, envelope: bytes, se
     except InvalidSignature:
         raise Exception("InvalidSignature")
     #If !ct_equal(envelope.auth_tag, expected_tag)
-    return client_private_key, export_key
+    return client_private_key, export_key, client_public_key
 
 
 #  5.2. Registration Functions
 
 def CreateRegistrationRequest(password: bytes) -> tuple[bytes, bytes]:
-    blind, blinded_element = Blind(password)
+    blind, blinded_element = Blind(password, bytes.fromhex(blind_registration))
     #blinded_message = SerializeElement(blinded_element)
     blinded_message = blinded_element
     #Create RegistrationRequest request with blinded_message
@@ -235,6 +244,7 @@ class OPAQUE3DH(object):
                                                                                      credential_identifier,
                                                                                      oprf_seed)
         credential_response = evaluated_message + masking_nonce + masked_response
+
         server_nonce, server_keyshare, server_mac = self.AuthServerRespond(server_identity, server_private_key, client_identity,
                                           RECORD.client_public_key, KE1, credential_response)
         auth_response = server_nonce + server_keyshare + server_mac
@@ -242,15 +252,19 @@ class OPAQUE3DH(object):
         ke2 = credential_response + auth_response
         return ke2
 
-    def ClientFinish(self, client_identity: bytes, server_identity:bytes, ke2: bytes) -> tuple[bytes, bytes, bytes]:
+    def ClientFinish(self, client_identity: bytes, server_identity: bytes, ke2: bytes) -> tuple[bytes, bytes, bytes]:
         KE2 = deserialize_ke2(ke2)
-        client_private_key, server_public_key, export_key = RecoverCredentials(self.state['password'],
-                                                                               self.state['blind'],
-                                                                               KE2.evaluated_message,
-                                                                               KE2.masking_nonce,
-                                                                               KE2.masked_response,
-                                                                               server_identity,
-                                                                               client_identity)
+        client_private_key, server_public_key, export_key, client_public_key = RecoverCredentials(self.state['password'],
+                                                                                                  self.state['blind'],
+                                                                                                  KE2.evaluated_message,
+                                                                                                  KE2.masking_nonce,
+                                                                                                  KE2.masked_response,
+                                                                                                  server_identity,
+                                                                                                  client_identity)
+        if len(server_identity) == 0:
+            server_identity = server_public_key
+        if len(client_identity) == 0:
+            client_identity = client_public_key
         ke3, session_key = self.AuthClientFinalize(client_identity, client_private_key, server_identity,
                                                    server_public_key, ke2)
         return ke3, session_key, export_key
@@ -260,9 +274,9 @@ class OPAQUE3DH(object):
 
     #  6.4.3. 3DH Client Functions
     def AuthClientStart(self, credential_request) -> bytes:
-        client_nonce = random(Nn)
+        client_nonce = bytes.fromhex('da7e07376d6d6f034cfa9bb537d11b8c6b4238c334333d1f0aebb380cae6a6cc')# random(Nn)
         # (client_secret, client_keyshare) = GenerateAuthKeyPair()
-        client_secret, client_keyshare = DeriveKeyPair(random(Nseed), b"OPAQUE-DeriveAuthKeyPair")
+        client_secret, client_keyshare = bytes.fromhex(client_private_keyshare), sodium.bas(bytes.fromhex(client_private_keyshare)) # DeriveKeyPair(random(Nseed), b"OPAQUE-DeriveAuthKeyPair")
         # Create AuthRequest auth_request with (client_nonce, client_keyshare)
         auth_request = client_nonce + client_keyshare
         #Create KE1 ke1 with (credential_request, auth_request)
@@ -319,7 +333,6 @@ class OPAQUE3DH(object):
         ikm = dh1 + dh2 + dh3
 
         Km2, Km3, session_key = DeriveKeys(ikm, preamble)
-        print('session_key: ' + session_key.hex())
         digest = hashes.Hash(hashes.SHA512())
         digest.update(preamble)
         hash_preamble = digest.finalize()
@@ -348,7 +361,7 @@ class OPAQUE3DH(object):
 # 6.3.2.1. CreateCredentialRequest
 
 def CreateCredentialRequest(password: bytes) -> tuple[bytes, bytes]:
-    blind, blinded_element = Blind(password)
+    blind, blinded_element = Blind(password, bytes.fromhex(blind_login))
     blinded_message = blinded_element
     #Create CredentialRequest request with blinded_message
     return blinded_message, blind
@@ -375,7 +388,7 @@ def CreateCredentialResponse(blinded_message: bytes, server_public_key: bytes, m
 
 #  6.3.2.3. RecoverCredentials
 def RecoverCredentials(password: bytes, blind: bytes, evaluated_message: bytes, masking_nonce: bytes,
-                       masked_response: bytes, server_identity, client_identity) -> tuple[bytes, bytes, bytes]:
+                       masked_response: bytes, server_identity, client_identity) -> tuple[bytes, bytes, bytes, bytes]:
     evaluated_element = evaluated_message
 
     oprf_output = Finalize(password, blind, evaluated_element)
@@ -388,10 +401,9 @@ def RecoverCredentials(password: bytes, blind: bytes, evaluated_message: bytes, 
     server_public_key_envelope = bytes(a ^ b for a, b in zip(credential_response_pad, masked_response))
     server_public_key = server_public_key_envelope[0:Npk]
     envelope = server_public_key_envelope[Npk:]
-    client_private_key, export_key = Recover(randomized_pwd, server_public_key, envelope, server_identity,
-                                             client_identity)
-
-    return client_private_key, server_public_key, export_key
+    client_private_key, export_key, client_public_key = Recover(randomized_pwd, server_public_key, envelope,
+                                                                server_identity, client_identity)
+    return client_private_key, server_public_key, export_key, client_public_key
 
 
 # 6.4.2.1. Transcript Functions
@@ -420,3 +432,12 @@ def DeriveKeys(ikm: bytes, preamble: bytes) -> tuple[bytes, bytes, bytes]:
     Km2 = derive_secret(handshake_secret, b"ServerMAC", b"")
     Km3 = derive_secret(handshake_secret, b"ClientMAC", b"")
     return Km2, Km3, session_key
+
+
+def Blind(input: bytes, blind: bytes) -> tuple[bytes, bytes]:
+    DST = b'HashToGroup-' + contextString
+    inputElement = sodium.pnt(expand_message_xmd(input, DST, 64, hashlib.sha512))
+    if inputElement == identity.to_bytes(32, 'big'):
+        raise ValueError('Invalid Input')
+    blindedElement = sodium.mul(blind, inputElement)
+    return blind, blindedElement

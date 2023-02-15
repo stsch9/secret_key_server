@@ -40,13 +40,13 @@ def FinalizeRegistrationRequest(password: bytes, blind: bytes, evaluated_message
         Store(randomized_pwd, server_public_key, server_identity, client_identity)
     return client_public_key + masking_key + envelope, export_key
 
-def Blind(input: bytes, blind: bytes) -> tuple[bytes, bytes]:
-    DST = b'HashToGroup-' + contextString
-    inputElement = sodium.pnt(expand_message_xmd(input, DST, 64, hashlib.sha512))
-    if inputElement == identity.to_bytes(32, 'big'):
-        raise ValueError('Invalid Input')
-    blindedElement = sodium.mul(blind, inputElement)
-    return blind, blindedElement
+#def Blind(input: bytes, blind: bytes) -> tuple[bytes, bytes]:
+#    DST = b'HashToGroup-' + contextString
+#    inputElement = sodium.pnt(expand_message_xmd(input, DST, 64, hashlib.sha512))
+#    if inputElement == identity.to_bytes(32, 'big'):
+#        raise ValueError('Invalid Input')
+#    blindedElement = sodium.mul(blind, inputElement)
+#    return blind, blindedElement
 
 # Input Values
 
@@ -63,6 +63,7 @@ credential_identifier = '31323334'
 envelope_nonce = 'ac13171b2f17bc2c74997f0fce1e1f35bec6b91fe2e12dbd323d23ba7a38dfec'
 server_identity = ''
 client_identity = ''
+blind_registration = '76cfbfe758db884bebb33582331ba9f159720ca8784a2a070a265d9c2d6abe01'
 blind_login = '6ecc102d2e7a7cf49617aad7bbe188556792d4acd60a1a8a8d2b65d4b0790308'
 client_nonce = 'da7e07376d6d6f034cfa9bb537d11b8c6b4238c334333d1f0aebb380cae6a6cc'
 server_keyshare = 'c8c39f573135474c51660b02425bca633e339cec4e1acc69c94dd48497fe4028'
@@ -90,13 +91,25 @@ print('envelop: ' + RECORD.envelope.hex())
 
 # 6. Online Authenticated Key Exchange
 
-client_keyshare = sodium.bas(bytes.fromhex(client_private_keyshare))
-print('client_keyshare: ' + client_keyshare.hex())
+#client_keyshare = sodium.bas(bytes.fromhex(client_private_keyshare))
+#print('client_keyshare: ' + client_keyshare.hex())
 
-ke1 = Blind(bytes.fromhex(password), bytes.fromhex(blind_login))[1] + bytes.fromhex(client_nonce) + client_keyshare
-print('k1: ' + (Blind(bytes.fromhex(password), bytes.fromhex(blind_login))[1] + bytes.fromhex(client_nonce) + client_keyshare).hex())
+#ke1 = Blind(bytes.fromhex(password), bytes.fromhex(blind_login))[1] + bytes.fromhex(client_nonce) + client_keyshare
+#print('k1: ' + (Blind(bytes.fromhex(password), bytes.fromhex(blind_login))[1] + bytes.fromhex(client_nonce) + client_keyshare).hex())
+
+opache3dh_client = OPAQUE3DH()
+ke1 = opache3dh_client.ClientInit(bytes.fromhex(password))
+print('ke1: ' + ke1.hex())
 
 opache3dh_server = OPAQUE3DH()
 ke2 = opache3dh_server.ServerInit(bytes.fromhex(server_private_key), server_public_key, record,
                                   bytes.fromhex(credential_identifier), bytes.fromhex(oprf_seed), ke1)
-print('k2: ' + ke2.hex())
+print('ke2: ' + ke2.hex())
+
+ke3, session_key, export_key = opache3dh_client.ClientFinish(bytes.fromhex(client_identity), bytes.fromhex(server_identity), ke2)
+print('ke3: ' + ke3.hex())
+print('session_key: ' + session_key.hex())
+print('export_key: ' + export_key.hex())
+
+session_key = opache3dh_server.ServerFinish(ke3)
+print('session_key: ' + session_key.hex())
