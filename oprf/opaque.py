@@ -50,21 +50,19 @@ def Expand(key_material: bytes, info: bytes, length: int) -> bytes:
 
 def CreateCleartextCredentials(server_public_key: bytes, client_public_key: bytes,
                                server_identity=b'', client_identity=b'') -> bytes:
-  # Set identities as public keys if no application-layer identity is provided
     if len(server_identity) == 0:
         server_identity = server_public_key
     if len(client_identity) == 0:
         client_identity = client_public_key
-
   #Create CleartextCredentials cleartext_credentials with
   #  (server_public_key, server_identity, client_identity)
-    #return server_public_key + server_identity + client_identity
-
     return server_public_key + encode_vector(server_identity) + encode_vector(client_identity)
 
 # 4.1.2. Envelope Creation
 
-def Store(randomized_pwd: bytes, server_public_key: bytes, server_identity=b'', client_identity=b'') -> tuple[bytes, bytes, bytes, bytes,]:
+
+def Store(randomized_pwd: bytes, server_public_key: bytes, server_identity=b'', client_identity=b'') -> \
+        tuple[bytes, bytes, bytes, bytes]:
     envelope_nonce = random(Nn)
     masking_key = Expand(randomized_pwd, b"MaskingKey", Nh)
     auth_key = Expand(randomized_pwd, envelope_nonce + b"AuthKey", Nh)
@@ -72,8 +70,7 @@ def Store(randomized_pwd: bytes, server_public_key: bytes, server_identity=b'', 
     seed = Expand(randomized_pwd, envelope_nonce + b"PrivateKey", Nseed)
     _, client_public_key = DeriveKeyPair(seed, b"OPAQUE-DeriveAuthKeyPair")
 
-    cleartext_creds = CreateCleartextCredentials(server_public_key, client_public_key,
-                               server_identity, client_identity)
+    cleartext_creds = CreateCleartextCredentials(server_public_key, client_public_key, server_identity, client_identity)
     h = hmac.HMAC(auth_key, hashes.SHA512())
     h.update(envelope_nonce + cleartext_creds)
     auth_tag = h.finalize()
@@ -85,7 +82,7 @@ def Store(randomized_pwd: bytes, server_public_key: bytes, server_identity=b'', 
 
 # 4.1.3. Envelope Recovery
 def Recover(randomized_pwd: bytes, server_public_key: bytes, envelope: bytes, server_identity: bytes,
-            client_identity: bytes) -> tuple[bytes, bytes]:
+            client_identity: bytes) -> tuple[bytes, bytes, bytes]:
     envelope_nonce = envelope[0:Nn]
     envelope_auth_tag = envelope[Nn:]
     auth_key = Expand(randomized_pwd, envelope_nonce + b"AuthKey", Nh)
@@ -93,6 +90,10 @@ def Recover(randomized_pwd: bytes, server_public_key: bytes, envelope: bytes, se
     seed = Expand(randomized_pwd, envelope_nonce + b"PrivateKey", Nseed)
     client_private_key, client_public_key = DeriveKeyPair(seed, b"OPAQUE-DeriveAuthKeyPair")
 
+    if len(server_identity) == 0:
+        server_identity = server_public_key
+    if len(client_identity) == 0:
+        client_identity = client_public_key
     cleartext_creds = CreateCleartextCredentials(server_public_key, client_public_key, server_identity, client_identity)
     h = hmac.HMAC(auth_key, hashes.SHA512())
     h.update(envelope_nonce + cleartext_creds)
@@ -101,7 +102,7 @@ def Recover(randomized_pwd: bytes, server_public_key: bytes, envelope: bytes, se
     except InvalidSignature:
         raise Exception("InvalidSignature")
     #If !ct_equal(envelope.auth_tag, expected_tag)
-    return client_private_key, export_key
+    return client_private_key, export_key, client_public_key
 
 
 #  5.2. Registration Functions
@@ -138,7 +139,6 @@ def FinalizeRegistrationRequest(password: bytes, blind: bytes, evaluated_message
     # evaluated_element = DeserializeElement(response.evaluated_message)
     evaluated_element = evaluated_message
     oprf_output = Finalize(password, blind, evaluated_element)
-    print("oprf_output: " + oprf_output.hex())
 
     # stretched_oprf_output = Stretch(oprf_output, params)
     stretched_oprf_output = oprf_output
@@ -244,13 +244,17 @@ class OPAQUE3DH(object):
 
     def ClientFinish(self, client_identity: bytes, server_identity:bytes, ke2: bytes) -> tuple[bytes, bytes, bytes]:
         KE2 = deserialize_ke2(ke2)
-        client_private_key, server_public_key, export_key = RecoverCredentials(self.state['password'],
-                                                                               self.state['blind'],
-                                                                               KE2.evaluated_message,
-                                                                               KE2.masking_nonce,
-                                                                               KE2.masked_response,
-                                                                               server_identity,
-                                                                               client_identity)
+        client_private_key, server_public_key, export_key, client_public_key = RecoverCredentials(self.state['password'],
+                                                                                                  self.state['blind'],
+                                                                                                  KE2.evaluated_message,
+                                                                                                  KE2.masking_nonce,
+                                                                                                  KE2.masked_response,
+                                                                                                  server_identity,
+                                                                                                  client_identity)
+        if len(server_identity) == 0:
+            server_identity = server_public_key
+        if len(client_identity) == 0:
+            client_identity = client_public_key
         ke3, session_key = self.AuthClientFinalize(client_identity, client_private_key, server_identity,
                                                    server_public_key, ke2)
         return ke3, session_key, export_key
@@ -375,7 +379,7 @@ def CreateCredentialResponse(blinded_message: bytes, server_public_key: bytes, m
 
 #  6.3.2.3. RecoverCredentials
 def RecoverCredentials(password: bytes, blind: bytes, evaluated_message: bytes, masking_nonce: bytes,
-                       masked_response: bytes, server_identity, client_identity) -> tuple[bytes, bytes, bytes]:
+                       masked_response: bytes, server_identity, client_identity) -> tuple[bytes, bytes, bytes, bytes]:
     evaluated_element = evaluated_message
 
     oprf_output = Finalize(password, blind, evaluated_element)
@@ -388,10 +392,9 @@ def RecoverCredentials(password: bytes, blind: bytes, evaluated_message: bytes, 
     server_public_key_envelope = bytes(a ^ b for a, b in zip(credential_response_pad, masked_response))
     server_public_key = server_public_key_envelope[0:Npk]
     envelope = server_public_key_envelope[Npk:]
-    client_private_key, export_key = Recover(randomized_pwd, server_public_key, envelope, server_identity,
-                                             client_identity)
-
-    return client_private_key, server_public_key, export_key
+    client_private_key, export_key, client_public_key = Recover(randomized_pwd, server_public_key, envelope,
+                                                                server_identity, client_identity)
+    return client_private_key, server_public_key, export_key, client_public_key
 
 
 # 6.4.2.1. Transcript Functions
