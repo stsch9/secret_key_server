@@ -4,7 +4,7 @@ import config
 import time
 import pyseto
 from flask_restful import Resource, reqparse
-from model import SecretKeys, SecretKeysSchema, Challenges, ChallengesSchema, Users, UsersSchema, UserKeys, UserKeysSchema, CA, Masks
+from model import DataroomKeys, DataroomKeysSchema, Challenges, ChallengesSchema, Users, UsersSchema, UserKeys, UserKeysSchema, CA, Masks
 from nacl.utils import random
 from nacl.encoding import Base64Encoder
 import nacl.secret
@@ -14,7 +14,7 @@ from cryptography.hazmat.primitives import hashes, hmac
 from oblivious import sodium
 from oprf.oprf_ristretto25519_sha512 import BlindEvaluate
 
-secret_key_schema = SecretKeysSchema()
+dataroom_key_schema = DataroomKeysSchema()
 challenges_schema = ChallengesSchema()
 users_schema = UsersSchema()
 user_keys_schema = UserKeysSchema()
@@ -24,18 +24,14 @@ user_keys_schema = UserKeysSchema()
 # use paseto for enc_mask token
 
 class SecretKeyManagement(Resource):
-    # register new key
+    # register new dataroom (new master keys (secret + recipient master key)
     @staticmethod
     def post():
         parser = reqparse.RequestParser()
-        parser.add_argument('node_id', type=int, required=True, help='node_id must be an integer and cannot be blank')
-        parser.add_argument('user_id', type=int, required=True, help='user_id must be an integer and cannot be blank')
-        parser.add_argument('encrypted_secret_key', required=True, help='encrypted_secret_key cannot be blank')
-        parser.add_argument('derivation_salt', required=True, help='derivation_salt cannot be blank')
-        parser.add_argument('signing_key', required=True, help='signing_key cannot be blank')
-        parser.add_argument('encryption_key', required=True, help='encryption_key cannot be blank')
-        parser.add_argument('encrypted_private_key', required=True, help='encrypted_private_key cannot be blank')
-        parser.add_argument('public_key', required=True, help='public_key cannot be blank')
+        parser.add_argument('token', type=str, required=True, help='token must be an str and cannot be blank')
+        parser.add_argument('session_id', required=True, location='headers')
+        parser.add_argument('X-Auth-Signature', required=True, location='headers')
+        parser.add_argument('X-Auth-Timestamp', required=True, location='headers')
         args = parser.parse_args()
         node_id = args['node_id']
         user_id = args['user_id']
@@ -89,6 +85,7 @@ class SecretKeyManagement(Resource):
 
 
 class UserKeyManagement(Resource):
+    # add a new user to a dataroom
     @staticmethod
     def post():
         parser = reqparse.RequestParser()
@@ -157,6 +154,7 @@ class UserKeyManagement(Resource):
             return make_response(json.dumps({'Message:': f'Key for node_id {node_id} or user {user_id} not found'}), 400)
 
     @staticmethod
+    # remove user from a dataroom -> renew secret + recipient master keys
     def put():
         parser = reqparse.RequestParser()
         parser.add_argument('node_id', type=int, required=True, help='node_id must be an integer and cannot be blank',

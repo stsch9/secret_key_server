@@ -1,33 +1,29 @@
 from config import db, ma
 
 
-class SecretKeys(db.Model):
-    __tablename__ = "secret_keys"
+class DataroomKeys(db.Model):
+    __tablename__ = "dataroom_keys"
     node_id = db.Column(db.Integer, primary_key=True)
+    key_type = db.Column(db.Integer, primary_key=True)  # 1 = secret key, 2 = recipient key, 3 = both
     key_id = db.Column(db.Integer)
-    derivation_salt = db.Column(db.String(32))
     signing_key = db.Column(db.String(32))
     encryption_key = db.Column(db.String(32))
-    encrypted_intermediate_keys = db.Column(db.String)
-    public_key = db.Column(db.String(32))
+    intermediate_keys = db.Column(db.String)
     created_at = db.Column(db.Integer)
 
-    def __init__(self, node_id, key_id, derivation_salt, signing_key, encryption_key, encrypted_intermediate_keys,
-                 public_key, created_at):
+    def __init__(self, node_id, key_type, key_id, signing_key, encryption_key, intermediate_keys, created_at):
         self.node_id = node_id
+        self.key_type = key_type
         self.key_id = key_id
-        self.derivation_salt = derivation_salt
         self.signing_key = signing_key
         self.encryption_key = encryption_key
-        self.encrypted_intermediate_keys = encrypted_intermediate_keys
-        self.public_key = public_key
+        self.intermediate_keys = intermediate_keys
         self.created_at = created_at
 
 
-class SecretKeysSchema(ma.Schema):
+class DataroomKeysSchema(ma.Schema):
     class Meta:
-        fields = ('node_id', 'key_id', 'derivation_salt', 'signing_key', 'encryption_key',
-                  'encrypted_intermediate_keys', 'public_key', 'created_at')
+        fields = ('node_id', 'type', 'key_id', 'signing_key', 'encryption_key', 'intermediate_keys', 'created_at')
 
 
 class FileKeySalts(db.Model):
@@ -49,7 +45,7 @@ class FileKeySaltsSchema(ma.Schema):
 
 class Challenges(db.Model):
     __tablename__ = "challenges"
-    key_id = db.Column(db.Integer, db.ForeignKey('secret_keys.key_id'), primary_key=True)
+    key_id = db.Column(db.Integer, db.ForeignKey('dataroom_keys.key_id'), primary_key=True)
     challenge = db.Column(db.String(32))
     created_at = db.Column(db.Integer)
 
@@ -84,18 +80,18 @@ class UsersSchema(ma.Schema):
 class UserKeys(db.Model):
     __tablename__ = "user_keys"
     user_id = db.Column(db.Integer, db.ForeignKey('users.user_id'), primary_key=True)
-    node_id = db.Column(db.Integer, db.ForeignKey('secret_keys.node_id'), primary_key=True)
+    key_id = db.Column(db.Integer, db.ForeignKey('master_keys.key_id'), primary_key=True)
     encrypted_master_key = db.Column(db.String(72))
 
-    def __init__(self, user_id, node_id, encrypted_master_key):
+    def __init__(self, user_id, key_id, encrypted_master_key):
         self.user_id = user_id
-        self.node_id = node_id
+        self.key_id = key_id
         self.encrypted_master_key = encrypted_master_key
 
 
 class UserKeysSchema(ma.Schema):
     class Meta:
-        fields = ('user_id', 'node_id', 'encrypted_master_key')
+        fields = ('user_id', 'key_id', 'encrypted_master_key')
 
 
 class CA(db.Model):
