@@ -26,21 +26,23 @@ class DataroomKeysSchema(ma.Schema):
         fields = ('node_id', 'type', 'key_id', 'signing_key', 'encryption_key', 'intermediate_keys', 'created_at')
 
 
-class FileKeySalts(db.Model):
-    __tablename__ = "file_key_salts"
+class FileKeys(db.Model):
+    __tablename__ = "file_keys"
     node_id = db.Column(db.Integer, primary_key=True)
-    key_id = db.Column(db.Integer, db.ForeignKey('secret_keys.key_id'))
-    salt = db.Column(db.String())
+    key_id = db.Column(db.Integer, db.ForeignKey('dataroom.key_id'))
+    pkE = db.Column(db.String())
+    file_key = db.Column(db.String())
 
-    def __init__(self, node_id, key_id, salt):
+    def __init__(self, node_id, key_id, pkE, file_key):
         self.node_id = node_id
         self.key_id = key_id
-        self.salt = salt
+        self.pkE = pkE
+        self.file_key = file_key
 
 
-class FileKeySaltsSchema(ma.Schema):
+class FileKeysSchema(ma.Schema):
     class Meta:
-        fields = ('node_id', 'key_id', 'salt')
+        fields = ('node_id', 'key_id', 'pkE', 'file_key')
 
 
 class Challenges(db.Model):
@@ -80,7 +82,7 @@ class UsersSchema(ma.Schema):
 class UserKeys(db.Model):
     __tablename__ = "user_keys"
     user_id = db.Column(db.Integer, db.ForeignKey('users.user_id'), primary_key=True)
-    key_id = db.Column(db.Integer, db.ForeignKey('master_keys.key_id'), primary_key=True)
+    key_id = db.Column(db.Integer, db.ForeignKey('dataroom_keys.key_id'), primary_key=True)
     encrypted_master_key = db.Column(db.String(72))
 
     def __init__(self, user_id, key_id, encrypted_master_key):
