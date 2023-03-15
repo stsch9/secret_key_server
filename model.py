@@ -1,9 +1,22 @@
 from config import db, ma
 
+class Dataroom(db.Model):
+    __tablename__ = "datarooms"
+    node_id = db.Column(db.Integer, primary_key=True)
+    users = db.Column(db.String)
+    verification_key = db.Column(db.String(32))
+    created_at = db.Column(db.Integer)
+
+    def __init__(self, node_id, users, verification_key, created_at):
+        self.node_id = node_id
+        self.users = users
+        self.verification_key = verification_key
+        self.created_at = created_at
+
 
 class DataroomKeys(db.Model):
     __tablename__ = "dataroom_keys"
-    node_id = db.Column(db.Integer, primary_key=True)
+    node_id = db.Column(db.Integer, db.ForeignKey('datarooms.node_id'), primary_key=True)
     key_type = db.Column(db.Integer, primary_key=True)  # 1 = secret key, 2 = recipient key, 3 = both
     key_id = db.Column(db.Integer)
     signing_key = db.Column(db.String(32))
@@ -26,23 +39,23 @@ class DataroomKeysSchema(ma.Schema):
         fields = ('node_id', 'type', 'key_id', 'signing_key', 'encryption_key', 'intermediate_keys', 'created_at')
 
 
-class FileKeys(db.Model):
-    __tablename__ = "file_keys"
-    node_id = db.Column(db.Integer, primary_key=True)
-    key_id = db.Column(db.Integer, db.ForeignKey('dataroom.key_id'))
-    pkE = db.Column(db.String())
-    file_key = db.Column(db.String())
-
-    def __init__(self, node_id, key_id, pkE, file_key):
-        self.node_id = node_id
-        self.key_id = key_id
-        self.pkE = pkE
-        self.file_key = file_key
-
-
-class FileKeysSchema(ma.Schema):
-    class Meta:
-        fields = ('node_id', 'key_id', 'pkE', 'file_key')
+#class FileKeys(db.Model):
+#    __tablename__ = "file_keys"
+#    node_id = db.Column(db.Integer, primary_key=True)
+#    key_id = db.Column(db.Integer, db.ForeignKey('datarooms.key_id'))
+#    pkE = db.Column(db.String())
+#    file_key = db.Column(db.String())
+#
+#    def __init__(self, node_id, key_id, pkE, file_key):
+#        self.node_id = node_id
+#        self.key_id = key_id
+#        self.pkE = pkE
+#        self.file_key = file_key
+#
+#
+#class FileKeysSchema(ma.Schema):
+#    class Meta:
+#        fields = ('node_id', 'key_id', 'pkE', 'file_key')
 
 
 class Challenges(db.Model):
@@ -66,12 +79,12 @@ class Users(db.Model):
     __tablename__ = "users"
     user_id = db.Column(db.Integer, primary_key=True)
     public_key = db.Column(db.String(32))
-    private_key_mask = db.Column(db.String(32))
+    credential_identifier = db.Column(db.String(32))
 
-    def __init__(self, user_id, public_key, private_key_mask):
+    def __init__(self, user_id, public_key, credential_identifier):
         self.user_id = user_id
         self.public_key = public_key
-        self.private_key_mask = private_key_mask
+        self.credential_identifier = credential_identifier
 
 
 class UsersSchema(ma.Schema):
@@ -94,6 +107,18 @@ class UserKeys(db.Model):
 class UserKeysSchema(ma.Schema):
     class Meta:
         fields = ('user_id', 'key_id', 'encrypted_master_key')
+
+
+class UserSessions(db.Model):
+    __tablename__ = "user_sessions"
+    session_id = db.Column(db.String, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.user_id'))
+    session_key = db.Column(db.String)
+
+    def __init__(self, session_id, user_id , session_key):
+        self.session_id = session_id
+        self.user_id = user_id
+        self.session_key = session_key
 
 
 class CA(db.Model):

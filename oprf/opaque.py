@@ -1,6 +1,6 @@
 # https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-opaque
 
-from oprf_ristretto25519_sha512 import Blind, DeriveKeyPair, BlindEvaluate, Finalize, I2OSP
+from .oprf_ristretto25519_sha512 import Blind, DeriveKeyPair, BlindEvaluate, Finalize, I2OSP
 from cryptography.hazmat.primitives import hashes, hmac
 from cryptography.hazmat.primitives.kdf.hkdf import HKDFExpand
 from cryptography.exceptions import InvalidSignature

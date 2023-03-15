@@ -1,8 +1,23 @@
+import json
+from typing import Union
 from flask import request
 from cryptography.hazmat.primitives import hashes, hmac
 from nacl.bindings import sodium_memcmp
+from model import UserSessions
 
-def hmac_auth(secret_key, challenge):
+
+def authenticate_user(session_id: int) -> Union[UserSessions, bool]:
+    session_id_db = UserSessions.query.get(session_id)
+    if not session_id_db:
+        return False
+
+    if not hmac_auth(session_id_db.session_key):
+        return False
+
+    return session_id_db
+
+
+def hmac_auth(secret_key, challenge=b''):
     x_auth_signature = request.headers['X-Auth-Signature']
     timestamp = request.headers['X-Auth-Timestamp']
     x_auth_version = request.headers['X-Auth-Version']
@@ -20,9 +35,10 @@ def hmac_auth(secret_key, challenge):
               bytearray(SIGNATURE_DELIM, 'utf-8') + \
               bytearray(timestamp, 'utf-8') + \
               bytearray(SIGNATURE_DELIM, 'utf-8') + \
-              bytearray(path, 'utf-8') + \
-              bytearray(SIGNATURE_DELIM, 'utf-8') + \
-              challenge
+              bytearray(path, 'utf-8')
+
+    if challenge:
+        message += bytearray(SIGNATURE_DELIM, 'utf-8') + challenge
 
     if content:
         message += bytearray(SIGNATURE_DELIM, 'utf-8') + content # bytearray(content, 'utf-8')

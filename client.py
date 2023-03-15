@@ -13,6 +13,7 @@ from cryptography.exceptions import InvalidSignature
 from resources_client.authentication import HmacAuth
 from SecureString import clearmem
 from oprf.oprf_ristretto25519_sha512 import Blind, Finalize
+from resources_client.dracoon_requests import create_registration_request
 
 
 def signing_encryption_key_derivation(raw_secret_key, raw_salt, info = b"secret_key_server"):
@@ -285,6 +286,12 @@ print(add_user(1))
 print("----------------------")
 print("add user 2")
 print(add_user(2))
+
+print("----------------------")
+print("user registration 2")
+print(type(create_registration_request(2, "password")))
+
+quit()
 
 print("----------------------")
 print("add node")

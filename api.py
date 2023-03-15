@@ -13,6 +13,7 @@ from resources_server.authentication import hmac_auth
 from cryptography.hazmat.primitives import hashes, hmac
 from oblivious import sodium
 from oprf.oprf_ristretto25519_sha512 import BlindEvaluate
+from oprf.opaque import Nh, CreateRegistrationResponse
 
 dataroom_key_schema = DataroomKeysSchema()
 challenges_schema = ChallengesSchema()
@@ -23,37 +24,39 @@ user_keys_schema = UserKeysSchema()
 # use uuid for mask_id + key_id
 # use paseto for enc_mask token
 
-class SecretKeyManagement(Resource):
+class DataroomManagement(Resource):
     # register new dataroom (new master keys (secret + recipient master key)
     @staticmethod
     def post():
         parser = reqparse.RequestParser()
-        parser.add_argument('token', type=str, required=True, help='token must be an str and cannot be blank')
+        parser.add_argument('token_keys', type=str, required=True, help='token_keys must be an str and cannot be blank')
+        parser.add_argument('token_users', type=str, required=True, help='token_user must be an str and cannot be blank')
         parser.add_argument('session_id', required=True, location='headers')
         parser.add_argument('X-Auth-Signature', required=True, location='headers')
         parser.add_argument('X-Auth-Timestamp', required=True, location='headers')
         args = parser.parse_args()
-        node_id = args['node_id']
-        user_id = args['user_id']
-        encrypted_secret_key = args['encrypted_secret_key']
-        derivation_salt = args['derivation_salt']
-        signing_key = args['signing_key']
-        encryption_key = args['encryption_key']
-        encrypted_private_key = args['encrypted_private_key']
-        public_key = args['public_key']
+
 
         # Pre-checks
         ## check input data are valid
-        try:
-            raw_encrypted_secret_key = Base64Encoder.decode(encrypted_secret_key)
-            raw_signing_key = Base64Encoder.decode(signing_key)
-            raw_encryption_key = Base64Encoder.decode(encryption_key)
-            raw_encrypted_private_key = Base64Encoder.decode(encrypted_private_key)
-            raw_public_key = Base64Encoder.decode(public_key)
-            raw_derivation_salt = Base64Encoder.decode(derivation_salt)
-        except:
-            return make_response(json.dumps({'Message:': 'Not valid data'}), 400)
+        #try:
+        #    raw_encrypted_secret_key = Base64Encoder.decode(encrypted_secret_key)
+        #except:
+        #    return make_response(json.dumps({'Message:': 'Not valid data'}), 400)
 
+        # check authentication
+
+        # decrypt token_keys
+
+        # validate token_keys payload
+
+        # verify signature token_users
+
+        # validate payload token_users
+
+        # add dataroom
+
+        ###
 
         if len(raw_signing_key) != 32 or len(raw_encryption_key) != 32 or len(raw_encrypted_private_key) != 72 or \
                 len(raw_public_key) != 32 or len(raw_encrypted_secret_key) != 72 or len(raw_derivation_salt) != 32:
@@ -84,7 +87,7 @@ class SecretKeyManagement(Resource):
         return make_response(json.dumps({'Message:': f'Keys for node_id {node_id} added'}), 200)
 
 
-class UserKeyManagement(Resource):
+class DataroomUserManagement(Resource):
     # add a new user to a dataroom
     @staticmethod
     def post():
@@ -301,28 +304,62 @@ class UserManagement(Resource):
     def post():
         parser = reqparse.RequestParser()
         parser.add_argument('user_id', type=int, required=True, help='user_id must be an integer and cannot be blank')
-        parser.add_argument('public_key')
         args = parser.parse_args()
         user_id = args['user_id']
-        public_key = args['public_key']
 
         user_db = Users.query.get(user_id)
         if user_db:
             return make_response(json.dumps({'INFO:': f'User {user_id} already exists.'}), 400)
 
-        # test public key
-        if not public_key:
-            user = Users(user_id, None, None)
-        else:
-            user = Users(user_id, public_key, None)
-
         try:
+            user = Users(user_id, None, None)
             db.session.add(user)
             db.session.commit()
-            return make_response(json.dumps({'Message:': f'User {user_id} added'}), 200)
+            return make_response(json.dumps({'Info:': f'User {user_id} added'}), 200)
         except:
             return make_response(json.dumps({'ERROR:': f'Adding user {user_id} failed'}),
                                  500)
+
+
+class CreateRegistrationRequest(Resource):
+    @staticmethod
+    def get():
+        parser = reqparse.RequestParser()
+        parser.add_argument('user_id', type=int, required=True, help='user_id must be an integer and cannot be blank',
+                            location='args')
+        parser.add_argument('request', type=str, required=True, help='request cannot be blank',
+                            location='args')
+        args = parser.parse_args()
+        user_id = args['user_id']
+        request = args['request']
+
+        user_db = Users.query.get(user_id)
+        if not user_db:
+            return make_response(json.dumps({'INFO:': f'User {user_id} does not exists.'}), 400)
+
+        if not user_db.credential_identifier:
+            credential_identifier = random(Nh)
+        else:
+            return make_response(json.dumps({'INFO:': f'User {user_id} is already registered .'}), 400)
+
+        server_public_key_db = CA.query.get('opache_server_public_key')
+        oprf_seed_db = CA.query.get('oprf_seed')
+        raw_request = bytes.fromhex(request)
+        raw_server_public_key = Base64Encoder.decode(server_public_key_db.ca_value)
+        raw_oprf_seed = Base64Encoder.decode(oprf_seed_db.ca_value)
+        raw_evaluated_message, _ = CreateRegistrationResponse(raw_request, raw_server_public_key,
+                                                              credential_identifier, raw_oprf_seed)
+
+        user_db.credential_identifier = Base64Encoder.encode(credential_identifier).decode('utf-8')
+        db.session.commit()
+
+        evaluated_message = Base64Encoder.encode(raw_evaluated_message).decode('utf-8')
+        return make_response(json.dumps({'evaluated_message:': f'{evaluated_message}',
+                                         'server_public_key': f'{server_public_key_db.ca_value}'}))
+
+    @staticmethod
+    def post():
+        pass
 
 
 class PrivateKeyManagement(Resource):
@@ -419,11 +456,12 @@ api = config.api
 app = config.app
 db = config.db
 
-api.add_resource(SecretKeyManagement, '/api/key')
-api.add_resource(ValidateKeyManagement, '/api/validate_secret_key')
-api.add_resource(ChallengeResponseManagement, '/api/challenge')
+api.add_resource(CreateRegistrationRequest, '/api/user-registration')
+api.add_resource(DataroomManagement, '/api/dataroom')
+api.add_resource(DataroomUserManagement, '/api/dataroom/users')
+api.add_resource(ValidateKeyManagement, '/api/dataroom/validate_secret_key')
+api.add_resource(ChallengeResponseManagement, '/api/dataroom/challenge')
 api.add_resource(UserManagement, '/api/user')
-api.add_resource(UserKeyManagement, '/api/user_keys')
 api.add_resource(PrivateKeyManagement, '/api/private_key')
 
 if __name__ == '__main__':
@@ -432,4 +470,23 @@ if __name__ == '__main__':
         key_value = CA('secret_mask_key', Base64Encoder.encode(raw_secret_mask_key).decode('utf-8'))
         db.session.add(key_value)
         db.session.commit()
+    if not CA.query.get('oprf_seed'):
+        raw_oprf_seed = random(Nh)
+        key_value_oprf_seed = CA('oprf_seed', Base64Encoder.encode(raw_oprf_seed).decode('utf-8'))
+        db.session.add(key_value_oprf_seed)
+        db.session.commit()
+    if not CA.query.get('opache_server_private_key') and not CA.query.get('opache_server_public_key'):
+        raw_server_private_key = sodium.rnd()
+        raw_server_public_key = sodium.bas(raw_server_private_key)
+        key_value_server_private_key = CA('opache_server_private_key',
+                                          Base64Encoder.encode(raw_server_private_key).decode('utf-8'))
+        key_value_server_public_key = CA('opache_server_public_key',
+                                          Base64Encoder.encode(raw_server_public_key).decode('utf-8'))
+        db.session.add(key_value_server_private_key)
+        db.session.add(key_value_server_public_key)
+        db.session.commit()
+    elif not CA.query.get('opache_server_private_key'):
+        raise Exception("Inconsistent database")
+    elif not CA.query.get('opache_server_public_key'):
+        raise Exception("Inconsistent database")
     app.run(debug=True)
