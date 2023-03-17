@@ -13,7 +13,7 @@ from cryptography.exceptions import InvalidSignature
 from resources_client.authentication import HmacAuth
 from SecureString import clearmem
 from oprf.oprf_ristretto25519_sha512 import Blind, Finalize
-from resources_client.dracoon_requests import create_registration_request
+from resources_client.dracoon_requests import Registration, add_user
 
 
 def signing_encryption_key_derivation(raw_secret_key, raw_salt, info = b"secret_key_server"):
@@ -82,17 +82,6 @@ def add_node(node_id, user_id, user_public_key):
 
     if response.status_code == 200:
         return response.json(), raw_secret_key, raw_private_key.encode(encoder=RawEncoder)
-    else:
-        raise Exception('Response Code: ' + str(response.status_code))
-
-
-def add_user(user_id):
-    headers = {"accept": "application/json",
-               "Content-Type": "application/json;charset=UTF-8"}
-    data = {"user_id": user_id}
-    response = requests.post("http://127.0.0.1:5000/api/user", data=json.dumps(data), headers=headers)
-    if response.status_code == 200:
-        return response.json()
     else:
         raise Exception('Response Code: ' + str(response.status_code))
 
@@ -288,8 +277,16 @@ print("add user 2")
 print(add_user(2))
 
 print("----------------------")
-print("user registration 2")
-print(type(create_registration_request(2, "password")))
+print("user registration 1")
+registration = Registration()
+response = registration.create_registration_request(2, "password")
+print(response)
+
+print("----------------------")
+print("user registration  part 2")
+raw_evaluated_message = Base64Encoder.decode(response['evaluated_message'])
+raw_server_public_key = Base64Encoder.decode(response['server_public_key'])
+print(registration.finalize_registration_request(2, "password", raw_evaluated_message, raw_server_public_key))
 
 quit()
 

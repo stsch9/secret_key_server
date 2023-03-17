@@ -80,11 +80,13 @@ class Users(db.Model):
     user_id = db.Column(db.Integer, primary_key=True)
     public_key = db.Column(db.String(32))
     credential_identifier = db.Column(db.String(32))
+    opache_record = db.Column(db.String)
 
-    def __init__(self, user_id, public_key, credential_identifier):
+    def __init__(self, user_id, public_key, credential_identifier, opache_record):
         self.user_id = user_id
         self.public_key = public_key
         self.credential_identifier = credential_identifier
+        self.opache_record = opache_record
 
 
 class UsersSchema(ma.Schema):

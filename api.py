@@ -312,7 +312,7 @@ class UserManagement(Resource):
             return make_response(json.dumps({'INFO:': f'User {user_id} already exists.'}), 400)
 
         try:
-            user = Users(user_id, None, None)
+            user = Users(user_id, None, None, None)
             db.session.add(user)
             db.session.commit()
             return make_response(json.dumps({'Info:': f'User {user_id} added'}), 200)
@@ -354,12 +354,33 @@ class CreateRegistrationRequest(Resource):
         db.session.commit()
 
         evaluated_message = Base64Encoder.encode(raw_evaluated_message).decode('utf-8')
-        return make_response(json.dumps({'evaluated_message:': f'{evaluated_message}',
+        return make_response(json.dumps({'evaluated_message': f'{evaluated_message}',
                                          'server_public_key': f'{server_public_key_db.ca_value}'}))
+
 
     @staticmethod
     def post():
-        pass
+        parser = reqparse.RequestParser()
+        parser.add_argument('user_id', type=int, required=True, help='user_id must be an integer and cannot be blank')
+        parser.add_argument('record', type=str, required=True, help='record cannot be blank')
+        args = parser.parse_args()
+        user_id = args['user_id']
+        record = args ['record']
+
+        user_db = Users.query.get(user_id)
+        if not user_db:
+            return make_response(json.dumps({'INFO:': f'User {user_id} does not exists.'}), 400)
+
+        if not user_db.credential_identifier:
+            return make_response(json.dumps({'INFO:': f'credential_identifier does not exists.'}), 400)
+
+        if user_db.opache_record:
+            return make_response(json.dumps({'INFO:': f'User {user_id} is already registered .'}), 400)
+
+        user_db.opache_record = record
+        db.session.commit()
+
+        return make_response(json.dumps({'INFO:': f'Registration for user {user_id} completed'}), 200)
 
 
 class PrivateKeyManagement(Resource):
