@@ -79,12 +79,14 @@ class Users(db.Model):
     __tablename__ = "users"
     user_id = db.Column(db.Integer, primary_key=True)
     public_key = db.Column(db.String(32))
+    registration_code = db.Column(db.String)
     credential_identifier = db.Column(db.String(32))
     opache_record = db.Column(db.String)
 
-    def __init__(self, user_id, public_key, credential_identifier, opache_record):
+    def __init__(self, user_id, public_key, registration_code, credential_identifier, opache_record):
         self.user_id = user_id
         self.public_key = public_key
+        self.registration_code = registration_code
         self.credential_identifier = credential_identifier
         self.opache_record = opache_record
 

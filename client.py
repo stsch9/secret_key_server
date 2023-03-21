@@ -270,23 +270,25 @@ def get_private_key(enc_mask, user_id, password):
 
 print("----------------------")
 print("add user 1")
-print(add_user(1))
+response = add_user(1)
+print(response)
+registration_code = response['registration_code']
 
 print("----------------------")
 print("add user 2")
 print(add_user(2))
 
 print("----------------------")
-print("user registration 1")
-registration = Registration()
-response = registration.create_registration_request(2, "password")
+print("user registration part 1")
+registration = Registration(registration_code)
+response = registration.create_registration_request(1, "password")
 print(response)
 
 print("----------------------")
 print("user registration  part 2")
 raw_evaluated_message = Base64Encoder.decode(response['evaluated_message'])
 raw_server_public_key = Base64Encoder.decode(response['server_public_key'])
-print(registration.finalize_registration_request(2, "password", raw_evaluated_message, raw_server_public_key))
+print(registration.finalize_registration_request(1, "password", raw_evaluated_message, raw_server_public_key))
 
 quit()
 

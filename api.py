@@ -10,7 +10,7 @@ from nacl.encoding import Base64Encoder
 import nacl.secret
 import nacl.exceptions
 from resources_server.authentication import hmac_auth
-from cryptography.hazmat.primitives import hashes, hmac
+from cryptography.hazmat.primitives import hashes, hmac, constant_time
 from oblivious import sodium
 from oprf.oprf_ristretto25519_sha512 import BlindEvaluate
 from oprf.opaque import Nh, CreateRegistrationResponse
@@ -312,30 +312,34 @@ class UserManagement(Resource):
             return make_response(json.dumps({'INFO:': f'User {user_id} already exists.'}), 400)
 
         try:
-            user = Users(user_id, None, None, None)
+            registration_code = random()
+            user = Users(user_id, None, registration_code.hex(), None, None)
             db.session.add(user)
             db.session.commit()
-            return make_response(json.dumps({'Info:': f'User {user_id} added'}), 200)
+            return make_response(json.dumps({'registration_code': f'{registration_code.hex()}'}), 200)
         except:
-            return make_response(json.dumps({'ERROR:': f'Adding user {user_id} failed'}),
+            return make_response(json.dumps({'ERROR': f'Adding user {user_id} failed'}),
                                  500)
 
 
-class CreateRegistrationRequest(Resource):
+class OpacheRegistrationInit(Resource):
     @staticmethod
-    def get():
+    def post():
         parser = reqparse.RequestParser()
-        parser.add_argument('user_id', type=int, required=True, help='user_id must be an integer and cannot be blank',
-                            location='args')
-        parser.add_argument('request', type=str, required=True, help='request cannot be blank',
-                            location='args')
+        parser.add_argument('user_id', type=int, required=True, help='user_id must be an integer and cannot be blank')
+        parser.add_argument('request', type=str, required=True, help='request cannot be blank')
+        parser.add_argument('registration_code', type=str, required=True, help='registration_code cannot be blank')
         args = parser.parse_args()
         user_id = args['user_id']
         request = args['request']
+        registration_code = args['registration_code']
 
         user_db = Users.query.get(user_id)
         if not user_db:
             return make_response(json.dumps({'INFO:': f'User {user_id} does not exists.'}), 400)
+
+        if not constant_time.bytes_eq(bytes.fromhex(registration_code), bytes.fromhex(user_db.registration_code)):
+            return make_response(json.dumps({'INFO:': f'Unauthorized'}), 403)
 
         if not user_db.credential_identifier:
             credential_identifier = random(Nh)
@@ -358,18 +362,24 @@ class CreateRegistrationRequest(Resource):
                                          'server_public_key': f'{server_public_key_db.ca_value}'}))
 
 
+class OpacheRegistrationFinish(Resource):
     @staticmethod
     def post():
         parser = reqparse.RequestParser()
         parser.add_argument('user_id', type=int, required=True, help='user_id must be an integer and cannot be blank')
         parser.add_argument('record', type=str, required=True, help='record cannot be blank')
+        parser.add_argument('registration_code', type=str, required=True, help='registration_code cannot be blank')
         args = parser.parse_args()
         user_id = args['user_id']
-        record = args ['record']
+        record = args['record']
+        registration_code = args['registration_code']
 
         user_db = Users.query.get(user_id)
         if not user_db:
             return make_response(json.dumps({'INFO:': f'User {user_id} does not exists.'}), 400)
+
+        if not constant_time.bytes_eq(bytes.fromhex(registration_code), bytes.fromhex(user_db.registration_code)):
+            return make_response(json.dumps({'INFO:': f'Unauthorized'}), 403)
 
         if not user_db.credential_identifier:
             return make_response(json.dumps({'INFO:': f'credential_identifier does not exists.'}), 400)
@@ -381,6 +391,18 @@ class CreateRegistrationRequest(Resource):
         db.session.commit()
 
         return make_response(json.dumps({'INFO:': f'Registration for user {user_id} completed'}), 200)
+
+
+class OpacheServerInit(Resource):
+    @staticmethod
+    def post():
+        pass
+
+
+class OpacheServerFinish(Resource):
+    @staticmethod
+    def post():
+        pass
 
 
 class PrivateKeyManagement(Resource):
@@ -477,7 +499,10 @@ api = config.api
 app = config.app
 db = config.db
 
-api.add_resource(CreateRegistrationRequest, '/api/user-registration')
+api.add_resource(OpacheRegistrationInit, '/api/user-registration-init')
+api.add_resource(OpacheRegistrationFinish, '/api/user-registration-finish')
+api.add_resource(OpacheServerInit, '/api/user-authentication-init')
+api.add_resource(OpacheServerFinish, '/api/user-authentication-finish')
 api.add_resource(DataroomManagement, '/api/dataroom')
 api.add_resource(DataroomUserManagement, '/api/dataroom/users')
 api.add_resource(ValidateKeyManagement, '/api/dataroom/validate_secret_key')
