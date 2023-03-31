@@ -17,7 +17,7 @@ class Dataroom(db.Model):
 class DataroomKeys(db.Model):
     __tablename__ = "dataroom_keys"
     node_id = db.Column(db.Integer, db.ForeignKey('datarooms.node_id'), primary_key=True)
-    key_type = db.Column(db.Integer, primary_key=True)  # 1 = secret key, 2 = recipient key, 3 = both
+    key_type = db.Column(db.Integer, primary_key=True)  # 1 = secret key, 2 = recipient key, 3 = meta
     key_id = db.Column(db.Integer)
     signing_key = db.Column(db.String(32))
     encryption_key = db.Column(db.String(32))
@@ -82,13 +82,15 @@ class Users(db.Model):
     registration_code = db.Column(db.String)
     credential_identifier = db.Column(db.String(32))
     opache_record = db.Column(db.String)
+    user_status = db.Column(db.Integer)  # 0 = not registrated, 1 = registration first step finished, 2 = registration finished
 
-    def __init__(self, user_id, public_key, registration_code, credential_identifier, opache_record):
+    def __init__(self, user_id, public_key, registration_code, credential_identifier, opache_record, user_status):
         self.user_id = user_id
         self.public_key = public_key
         self.registration_code = registration_code
         self.credential_identifier = credential_identifier
         self.opache_record = opache_record
+        self.user_status = user_status
 
 
 class UsersSchema(ma.Schema):
@@ -118,11 +120,15 @@ class UserSessions(db.Model):
     session_id = db.Column(db.String, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.user_id'))
     session_key = db.Column(db.String)
+    expected_client_mac = db.Column(db.String)
+    session_status = db.Column(db.Integer)  # 0 = not valid, 1 = authentication first step, 2 = authentication finished
 
-    def __init__(self, session_id, user_id , session_key):
+    def __init__(self, session_id, user_id , session_key, expected_client_mac, session_status):
         self.session_id = session_id
         self.user_id = user_id
         self.session_key = session_key
+        self.expected_client_mac = expected_client_mac
+        self.session_status = session_status
 
 
 class CA(db.Model):

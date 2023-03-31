@@ -1,6 +1,6 @@
-# https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-opaque
+# https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-opaque-09
 import hashlib
-from oprf_ristretto25519_sha512 import DeriveKeyPair, BlindEvaluate, Finalize, I2OSP, contextString, identity, expand_message_xmd
+from oprf.oprf_ristretto25519_sha512 import DeriveKeyPair, BlindEvaluate, Finalize, I2OSP, contextString, identity, expand_message_xmd
 from opaque import encode_vector_len, Extract, Expand, CreateCleartextCredentials, Recover, CreateRegistrationResponse, \
     RECORD, deserialize_record, KE1, deserialize_ke1, KE2, deserialize_ke2, RecoverCredentials, Preamble, DeriveKeys
 from cryptography.hazmat.primitives import hashes, hmac

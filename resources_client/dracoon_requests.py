@@ -1,6 +1,9 @@
 import requests
 import json
 from oprf.opaque import CreateCredentialRequest, FinalizeRegistrationRequest, OPAQUE3DH
+from nacl.encoding import Base64Encoder
+from nacl.utils import random
+from nacl.bindings import crypto_kx_keypair
 
 
 def add_user(user_id: int) -> dict:
@@ -43,7 +46,7 @@ class Registration:
             raise Exception('Response Code: ' + str(response.status_code))
 
     def finalize_registration_request(self, user_id: int, password: str, evaluated_message: bytes,
-                                      server_public_key: bytes) -> dict:
+                                      server_public_key: bytes) -> tuple[dict, bytes]:
         user_id.to_bytes(4, byteorder='big')
         input = user_id.to_bytes(4, byteorder='big') + password.encode('utf-8')
         record, export_key = FinalizeRegistrationRequest(input, self.__blind, evaluated_message, server_public_key)
@@ -51,7 +54,7 @@ class Registration:
         headers = {"accept": "application/json",
                    "Content-Type": "application/json;charset=UTF-8"}
         data = {"user_id": user_id,
-                "record": record.hex(),
+                "record": Base64Encoder.encode(record).decode('utf-8'),
                 "registration_code": self.registration_code}
         try:
             response = requests.post("http://127.0.0.1:5000/api/user-registration-finish", data=json.dumps(data),
@@ -60,20 +63,49 @@ class Registration:
             raise Exception("API not available")
 
         if response.status_code == 200:
-            return response.json()
+            return response.json(), export_key
         else:
             raise Exception('Response Code: ' + str(response.json()) + str(response.request.body))
 
 
-class OpacheAuthentication:
-    def __init__(self):
-        self.opache_3dh = OPAQUE3DH()
-        self.__input = ""
-        self.__blind = b''
+def client_init(user_id: int, password: str, opache_3dh: OPAQUE3DH) -> dict:
+    user_id.to_bytes(4, byteorder='big')
+    input_password = user_id.to_bytes(4, byteorder='big') + password.encode('utf-8')
+    ke1 = opache_3dh.ClientInit(input_password)
 
-    def client_init(self, user_id: int, password: str) -> dict:
-        user_id.to_bytes(4, byteorder='big')
-        self.__input = user_id.to_bytes(4, byteorder='big') + password.encode('utf-8')
-        ke1 = self.opache_3dh.ClientInit(self.__input)
-        self.__blind = self.opache_3dh.state['blind']
-        return {}
+    headers = {"accept": "application/json",
+               "Content-Type": "application/json;charset=UTF-8"}
+    data = {"user_id": user_id,
+            "ke1": ke1.hex()}
+    try:
+        response = requests.post("http://127.0.0.1:5000/api/user-authentication-init", data=json.dumps(data),
+                                 headers=headers)
+    except requests.exceptions.RequestException:
+        raise Exception("API not available")
+
+    if response.status_code == 200:
+        return response.json()
+    else:
+        raise Exception('Response Code: ' + str(response.json()))
+
+
+def client_finish(session_id: str, opache_3dh: OPAQUE3DH, ke2: bytes) -> tuple[dict, bytes, bytes]:
+    headers = {"accept": "application/json",
+               "Content-Type": "application/json;charset=UTF-8"}
+
+    cookies = {"session_id": session_id}
+
+    ke3, session_key, export_key = opache_3dh.ClientFinish(b'', b'', ke2)
+    data = {"ke3": ke3.hex()}
+
+    try:
+        response = requests.post("http://127.0.0.1:5000/api/user-authentication-finish", data=json.dumps(data),
+                                 headers=headers, cookies=cookies)
+    except requests.exceptions.RequestException:
+        raise Exception("API not available")
+
+    if response.status_code == 200:
+        return response.json(), session_key, export_key
+    else:
+        raise Exception('Response Code: ' + str(response.json()) + str(response.request.headers))
+

@@ -1,6 +1,6 @@
-# https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-opaque
+# https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-opaque-09
 
-from .oprf_ristretto25519_sha512 import Blind, DeriveKeyPair, BlindEvaluate, Finalize, I2OSP
+from oprf.oprf_ristretto25519_sha512 import Blind, DeriveKeyPair, BlindEvaluate, Finalize, I2OSP
 from cryptography.hazmat.primitives import hashes, hmac
 from cryptography.hazmat.primitives.kdf.hkdf import HKDFExpand
 from cryptography.exceptions import InvalidSignature
@@ -242,7 +242,7 @@ class OPAQUE3DH(object):
         ke2 = credential_response + auth_response
         return ke2
 
-    def ClientFinish(self, client_identity: bytes, server_identity:bytes, ke2: bytes) -> tuple[bytes, bytes, bytes]:
+    def ClientFinish(self, client_identity: bytes, server_identity: bytes, ke2: bytes) -> tuple[bytes, bytes, bytes]:
         KE2 = deserialize_ke2(ke2)
         client_private_key, server_public_key, export_key, client_public_key = RecoverCredentials(self.state['password'],
                                                                                                   self.state['blind'],

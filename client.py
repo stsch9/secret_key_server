@@ -13,7 +13,8 @@ from cryptography.exceptions import InvalidSignature
 from resources_client.authentication import HmacAuth
 from SecureString import clearmem
 from oprf.oprf_ristretto25519_sha512 import Blind, Finalize
-from resources_client.dracoon_requests import Registration, add_user
+from resources_client.dracoon_requests import Registration, add_user, client_init, client_finish
+from oprf.opaque import OPAQUE3DH
 
 
 def signing_encryption_key_derivation(raw_secret_key, raw_salt, info = b"secret_key_server"):
@@ -289,6 +290,17 @@ print("user registration  part 2")
 raw_evaluated_message = Base64Encoder.decode(response['evaluated_message'])
 raw_server_public_key = Base64Encoder.decode(response['server_public_key'])
 print(registration.finalize_registration_request(1, "password", raw_evaluated_message, raw_server_public_key))
+
+print("----------------------")
+print("user authentication  part 1")
+opache_3d = OPAQUE3DH()
+response = client_init(1, "password", opache_3d)
+print(response)
+
+print("----------------------")
+print("user authentication  part 2")
+raw_ke2 = Base64Encoder.decode(response['ke2'])
+print(client_finish(response['session_id'], opache_3d, raw_ke2))
 
 quit()
 

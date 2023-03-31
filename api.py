@@ -4,7 +4,7 @@ import config
 import time
 import pyseto
 from flask_restful import Resource, reqparse
-from model import DataroomKeys, DataroomKeysSchema, Challenges, ChallengesSchema, Users, UsersSchema, UserKeys, UserKeysSchema, CA, Masks
+from model import DataroomKeys, DataroomKeysSchema, Challenges, ChallengesSchema, Users, UsersSchema, UserKeys, UserKeysSchema, CA, Masks, UserSessions
 from nacl.utils import random
 from nacl.encoding import Base64Encoder
 import nacl.secret
@@ -13,7 +13,7 @@ from resources_server.authentication import hmac_auth
 from cryptography.hazmat.primitives import hashes, hmac, constant_time
 from oblivious import sodium
 from oprf.oprf_ristretto25519_sha512 import BlindEvaluate
-from oprf.opaque import Nh, CreateRegistrationResponse
+from oprf.opaque import Nh, CreateRegistrationResponse, OPAQUE3DH
 
 dataroom_key_schema = DataroomKeysSchema()
 challenges_schema = ChallengesSchema()
@@ -313,7 +313,7 @@ class UserManagement(Resource):
 
         try:
             registration_code = random()
-            user = Users(user_id, None, registration_code.hex(), None, None)
+            user = Users(user_id, None, registration_code.hex(), None, None, 0)
             db.session.add(user)
             db.session.commit()
             return make_response(json.dumps({'registration_code': f'{registration_code.hex()}'}), 200)
@@ -341,10 +341,13 @@ class OpacheRegistrationInit(Resource):
         if not constant_time.bytes_eq(bytes.fromhex(registration_code), bytes.fromhex(user_db.registration_code)):
             return make_response(json.dumps({'INFO:': f'Unauthorized'}), 403)
 
+        if user_db.user_status != 0:
+            return make_response(json.dumps({'INFO:': f'Start registration first.'}), 400)
+
         if not user_db.credential_identifier:
             credential_identifier = random(Nh)
         else:
-            return make_response(json.dumps({'INFO:': f'User {user_id} is already registered .'}), 400)
+            return make_response(json.dumps({'INFO:': f'User {user_id} is already registered.'}), 400)
 
         server_public_key_db = CA.query.get('opache_server_public_key')
         oprf_seed_db = CA.query.get('oprf_seed')
@@ -355,6 +358,7 @@ class OpacheRegistrationInit(Resource):
                                                               credential_identifier, raw_oprf_seed)
 
         user_db.credential_identifier = Base64Encoder.encode(credential_identifier).decode('utf-8')
+        user_db.user_status = 1
         db.session.commit()
 
         evaluated_message = Base64Encoder.encode(raw_evaluated_message).decode('utf-8')
@@ -384,10 +388,11 @@ class OpacheRegistrationFinish(Resource):
         if not user_db.credential_identifier:
             return make_response(json.dumps({'INFO:': f'credential_identifier does not exists.'}), 400)
 
-        if user_db.opache_record:
-            return make_response(json.dumps({'INFO:': f'User {user_id} is already registered .'}), 400)
+        if user_db.user_status != 1:
+            return make_response(json.dumps({'INFO:': f'User {user_id} is already registered.'}), 400)
 
         user_db.opache_record = record
+        user_db.user_status = 2
         db.session.commit()
 
         return make_response(json.dumps({'INFO:': f'Registration for user {user_id} completed'}), 200)
@@ -396,13 +401,72 @@ class OpacheRegistrationFinish(Resource):
 class OpacheServerInit(Resource):
     @staticmethod
     def post():
-        pass
+        parser = reqparse.RequestParser()
+        parser.add_argument('user_id', type=int, required=True, help='user_id must be an integer and cannot be blank')
+        parser.add_argument('ke1', type=str, required=True, help='ke1 cannot be blank')
+        args = parser.parse_args()
+        user_id = args['user_id']
+        ke1 = args['ke1']
+
+        user_db = Users.query.get(user_id)
+        if not user_db:
+            return make_response(json.dumps({'INFO:': f'User {user_id} does not exists.'}), 400)
+
+        if user_db.user_status != 2:
+            return make_response(json.dumps({'INFO:': f'User {user_id} is not registered.'}), 400)
+
+        oprf_seed_db = CA.query.get('oprf_seed')
+        server_private_key_db = CA.query.get('opache_server_private_key')
+        server_public_key_db = CA.query.get('opache_server_public_key')
+
+        opache3dh = OPAQUE3DH()
+        raw_ke2 = opache3dh.ServerInit(Base64Encoder.decode(server_private_key_db.ca_value),
+                                       Base64Encoder.decode(server_public_key_db.ca_value),
+                                       Base64Encoder.decode(user_db.opache_record),
+                                       Base64Encoder.decode(user_db.credential_identifier),
+                                       Base64Encoder.decode(oprf_seed_db.ca_value), bytes.fromhex(ke1))
+
+        ke2 = Base64Encoder.encode(raw_ke2).decode('utf-8')
+
+        session_id = Base64Encoder.encode(random(32)).decode('utf-8')
+        user_session = UserSessions(session_id, user_id, Base64Encoder.encode(opache3dh.state['session_key']).decode('utf-8'),
+                                    Base64Encoder.encode(opache3dh.state['expected_client_mac']).decode('utf-8'), 1)
+        db.session.add(user_session)
+        db.session.commit()
+
+        return make_response(json.dumps({'ke2': f'{ke2}', 'session_id': f'{session_id}'}), 200)
 
 
 class OpacheServerFinish(Resource):
     @staticmethod
     def post():
-        pass
+        parser = reqparse.RequestParser()
+        parser.add_argument('session_id', required=True, location='cookies')
+        parser.add_argument('ke3', type=str, required=True, help='ke3 cannot be blank')
+        args = parser.parse_args()
+        session_id = args['session_id']
+        ke3 = args['ke3']
+
+        user_sessions_db = UserSessions.query.get(session_id)
+        if not user_sessions_db:
+            return make_response(json.dumps({'INFO:': f'Session does not exists.'}), 400)
+
+        if user_sessions_db.session_status != 1:
+            return make_response(json.dumps({'INFO:': f'Invalid registration.'}), 400)
+
+        expected_client_mac = user_sessions_db.expected_client_mac
+        session_key = user_sessions_db.session_key
+
+        opache3dh = OPAQUE3DH()
+        opache3dh.state['expected_client_mac'] = Base64Encoder.decode(expected_client_mac)
+        opache3dh.state['session_key'] = Base64Encoder.decode(session_key)
+        raw_session_key = opache3dh.ServerFinish(bytes.fromhex(ke3))
+
+        user_sessions_db.session_key = Base64Encoder.encode(raw_session_key).decode('utf-8')
+        user_sessions_db.session_status = 2
+        db.session.commit()
+
+        return make_response(json.dumps({'authentication': 'success'}), 200)
 
 
 class PrivateKeyManagement(Resource):

@@ -1,6 +1,6 @@
 import sys
 import json
-from pyseto import Key, Paseto
+from pyseto import Key, Paseto, Token
 from pyhpke import AEADId, CipherSuite, KDFId, KEMId, KEMKey
 from nacl.bindings import crypto_secretstream_xchacha20poly1305_state, crypto_secretstream_xchacha20poly1305_init_push, \
     crypto_secretstream_xchacha20poly1305_push, crypto_secretstream_xchacha20poly1305_TAG_FINAL, \
@@ -11,6 +11,7 @@ from nacl.bindings import crypto_secretstream_xchacha20poly1305_state, crypto_se
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives import serialization
 from nacl.utils import random
 from nacl.exceptions import CryptoError
@@ -127,7 +128,7 @@ def _decrypt_key(skR: bytes, pkE: bytes, cipertext: bytes) -> bytes:
     return plaintext
 
 
-def _encrypt_key_file(sk: bytes, key_dict: dict) -> bytes:
+def _encrypt_key_file(sk: bytes, key_dict: dict, footer_dict: dict) -> bytes:
     ensure(
         isinstance(sk, bytes)
         and len(sk) == MASTER_KEY_BYTES,
@@ -142,12 +143,13 @@ def _encrypt_key_file(sk: bytes, key_dict: dict) -> bytes:
     token = paseto.encode(
         paseto_key,
         payload=key_dict,
+        footer=footer_dict,
         serializer=json
     )
     return token
 
 
-def _decrypt_key_file(sk: bytes, token: bytes) -> bytes:
+def _decrypt_key_file(sk: bytes, token: bytes) -> Token:
     ensure(
         isinstance(sk, bytes)
         and len(sk) == MASTER_KEY_BYTES,
@@ -160,7 +162,7 @@ def _decrypt_key_file(sk: bytes, token: bytes) -> bytes:
     paseto_key = Key.new(version=4, purpose="local", key=sk)
     decoded = pyseto.decode(paseto_key, token, deserializer=json)
 
-    return decoded.payload
+    return decoded
 
 
 def _encrypt_hpke(pkr: bytes, sks: bytes, psk: bytes, msg: bytes) -> tuple[bytes, bytes]:
@@ -196,6 +198,75 @@ def _encrypt_hpke(pkr: bytes, sks: bytes, psk: bytes, msg: bytes) -> tuple[bytes
     return enc, sender.seal(msg)
 
 
+def generate_user_token(user_dict: dict) -> tuple[bytes, bytes, bytes]:
+    private_key = Ed25519PrivateKey.generate()
+    public_bytes = private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw)
+
+    private_bytes = private_key.private_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PrivateFormat.Raw,
+        encryption_algorithm=serialization.NoEncryption())
+
+    private_key = Key.from_asymmetric_key_params(4, d=private_bytes)
+
+    token = pyseto.encode(
+        private_key,
+        payload=user_dict,
+        serializer=json
+    )
+
+    return private_bytes, public_bytes, token
+
+
+def renew_dataroomkeys(user_dict: dict, token_secret=b'', token_recipient=b'', master_key_meta=b'') -> \
+        tuple[bytes, bytes, bytes, bytes, bytes, bytes]:
+    piK, siK = crypto_kx_keypair()
+    key_id = random()
+
+    if token_secret and token_recipient and master_key_meta:
+        token_key_secret = master_key_meta[0:32]
+        token_key_recipient = master_key_meta[32:64]
+        siK_dict = _decrypt_key_file(token_key_secret, token_secret).payload
+        riK_dict = _decrypt_key_file(token_key_recipient, token_recipient).payload
+
+        key_dict_secret = {Base64Encoder.encode(key_id).decode('utf-8'): Base64Encoder.encode(siK).decode('utf-8')}.update(siK_dict)
+        key_dict_recipient = {Base64Encoder.encode(key_id).decode('utf-8'): Base64Encoder.encode(piK).decode('utf-8')}.update(riK_dict)
+    else:
+        key_dict_secret = {Base64Encoder.encode(key_id).decode('utf-8'): Base64Encoder.encode(siK).decode('utf-8')}
+        key_dict_recipient = {Base64Encoder.encode(key_id).decode('utf-8'): Base64Encoder.encode(piK).decode('utf-8')}
+
+    token_key_secret = random()
+    token_key_recipient = random()
+    signing_key_secret = random()
+    signing_key_recipient = random()
+    signing_key_meta = random()
+
+    signing_key_user, verify_key_user, token_user = generate_user_token(user_dict)
+    print(Base64Encoder.encode(verify_key_user).decode('utf-8'))
+
+    master_key_secret = token_key_secret + signing_key_secret
+    master_key_recipient = token_key_recipient + signing_key_recipient
+    master_key_meta = token_key_secret + token_key_recipient + signing_key_user + signing_key_meta
+
+    token_secret = _encrypt_key_file(token_key_secret, key_dict_secret, {'user_verify_key': Base64Encoder.encode(verify_key_user).decode('utf-8')})
+    token_recipient = _encrypt_key_file(token_key_recipient, key_dict_recipient, {'user_verify_key': Base64Encoder.encode(verify_key_user).decode('utf-8')})
+
+    return master_key_secret, master_key_recipient, master_key_meta, token_secret, token_recipient, token_user
+
+
+a, b, c, d, e, f = renew_dataroomkeys({'bla': 'bla'})
+print(e)
+
+import base64
+t = "eyJ1c2VyX3ZlcmlmeV9rZXkiOiAiUzRCdWZHUytqWWFReHVCQ0pTNHJFbjFUNytRTGVLRGxjV2NpZG9ZbEFSYz0ifQ"
+a = base64.urlsafe_b64decode(t + '=' * (4 - len(t) % 4))
+import json
+
+print(json.loads(a.decode('utf-8'))['user_verify_key'])
+
+exit()
 
 pkR, skR = crypto_kx_keypair()
 pkS, skS = crypto_kx_keypair()
