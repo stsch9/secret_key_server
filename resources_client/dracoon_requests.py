@@ -2,6 +2,7 @@ import requests
 import json
 from oprf.opaque import CreateCredentialRequest, FinalizeRegistrationRequest, OPAQUE3DH
 from nacl.encoding import Base64Encoder
+from resources_client.authentication import HmacAuth
 from nacl.utils import random
 from nacl.bindings import crypto_kx_keypair
 
@@ -109,3 +110,22 @@ def client_finish(session_id: str, opache_3dh: OPAQUE3DH, ke2: bytes) -> tuple[d
     else:
         raise Exception('Response Code: ' + str(response.json()) + str(response.request.headers))
 
+
+def dataroom_init(session_id: bytes, session_key: bytes, name: str) -> dict:
+    headers = {"accept": "application/json",
+               "Content-Type": "application/json;charset=UTF-8"}
+
+    cookies = {"session_id": session_id}
+
+    data = {'name': name}
+
+    try:
+        response = requests.post("http://127.0.0.1:5000/api/dataroom/init", data=json.dumps(data),
+                                 headers=headers, cookies=cookies, auth=HmacAuth(session_key))
+    except requests.exceptions.RequestException:
+        raise Exception("API not available")
+
+    if response.status_code == 200:
+        return response.json()
+    else:
+        raise Exception('Response Code: ' + str(response.json()))

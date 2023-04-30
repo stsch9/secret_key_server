@@ -13,7 +13,7 @@ from cryptography.exceptions import InvalidSignature
 from resources_client.authentication import HmacAuth
 from SecureString import clearmem
 from oprf.oprf_ristretto25519_sha512 import Blind, Finalize
-from resources_client.dracoon_requests import Registration, add_user, client_init, client_finish
+from resources_client.dracoon_requests import Registration, add_user, client_init, client_finish, dataroom_init
 from oprf.opaque import OPAQUE3DH
 
 
@@ -269,38 +269,49 @@ def get_private_key(enc_mask, user_id, password):
     else:
         raise Exception('Response Code: ' + str(response.status_code))
 
-print("----------------------")
-print("add user 1")
-response = add_user(1)
-print(response)
-registration_code = response['registration_code']
-
-print("----------------------")
-print("add user 2")
-print(add_user(2))
-
-print("----------------------")
-print("user registration part 1")
-registration = Registration(registration_code)
-response = registration.create_registration_request(1, "password")
-print(response)
-
-print("----------------------")
-print("user registration  part 2")
-raw_evaluated_message = Base64Encoder.decode(response['evaluated_message'])
-raw_server_public_key = Base64Encoder.decode(response['server_public_key'])
-print(registration.finalize_registration_request(1, "password", raw_evaluated_message, raw_server_public_key))
+#print("----------------------")
+#print("add user 1")
+#response = add_user(1)
+#print(response)
+#registration_code = response['registration_code']
+#
+#print("----------------------")
+#print("add user 2")
+#print(add_user(2))
+#
+#print("----------------------")
+#print("user registration part 1")
+#registration = Registration(registration_code)
+#response = registration.create_registration_request(1, "password")
+#print(response)
+#
+#print("----------------------")
+#print("user registration  part 2")
+#raw_evaluated_message = Base64Encoder.decode(response['evaluated_message'])
+#raw_server_public_key = Base64Encoder.decode(response['server_public_key'])
+#print(registration.finalize_registration_request(1, "password", raw_evaluated_message, raw_server_public_key))
 
 print("----------------------")
 print("user authentication  part 1")
 opache_3d = OPAQUE3DH()
 response = client_init(1, "password", opache_3d)
+session_id = response['session_id']
 print(response)
 
 print("----------------------")
 print("user authentication  part 2")
 raw_ke2 = Base64Encoder.decode(response['ke2'])
-print(client_finish(response['session_id'], opache_3d, raw_ke2))
+response, session_key, export_key = client_finish(session_id, opache_3d, raw_ke2)
+print(response)
+print(session_key)
+print(export_key)
+
+print("----------------------")
+print("dataroom init")
+response = dataroom_init(session_id, session_key, 'dataraum1')
+print(response)
+registration_code = response['registration_code']
+node_id = response['node_id']
 
 quit()
 

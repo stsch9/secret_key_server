@@ -4,18 +4,18 @@ import config
 import time
 import pyseto
 from flask_restful import Resource, reqparse
-from model import DataroomKeys, DataroomKeysSchema, Challenges, ChallengesSchema, Users, UsersSchema, UserKeys, UserKeysSchema, CA, Masks, UserSessions
+from model import Dataroom, Challenges, ChallengesSchema, Users, UsersSchema, UserKeys, UserKeysSchema, CA, Masks, UserSessions
 from nacl.utils import random
 from nacl.encoding import Base64Encoder
 import nacl.secret
 import nacl.exceptions
-from resources_server.authentication import hmac_auth
+from resources_server.authentication import authenticate_user
 from cryptography.hazmat.primitives import hashes, hmac, constant_time
 from oblivious import sodium
 from oprf.oprf_ristretto25519_sha512 import BlindEvaluate
 from oprf.opaque import Nh, CreateRegistrationResponse, OPAQUE3DH
 
-dataroom_key_schema = DataroomKeysSchema()
+#dataroom_key_schema = DataroomKeysSchema()
 challenges_schema = ChallengesSchema()
 users_schema = UsersSchema()
 user_keys_schema = UserKeysSchema()
@@ -24,18 +24,29 @@ user_keys_schema = UserKeysSchema()
 # use uuid for mask_id + key_id
 # use paseto for enc_mask token
 
-class DataroomManagement(Resource):
+class DataroomManagementInit(Resource):
     # register new dataroom (new master keys (secret + recipient master key)
+    # 2 steps since the node_id is used in the tokens
     @staticmethod
     def post():
         parser = reqparse.RequestParser()
-        parser.add_argument('token_keys', type=str, required=True, help='token_keys must be an str and cannot be blank')
-        parser.add_argument('token_users', type=str, required=True, help='token_user must be an str and cannot be blank')
-        parser.add_argument('session_id', required=True, location='headers')
+        parser.add_argument('name', required=True)
+        parser.add_argument('session_id', required=True, location='cookies')
         parser.add_argument('X-Auth-Signature', required=True, location='headers')
         parser.add_argument('X-Auth-Timestamp', required=True, location='headers')
         args = parser.parse_args()
+        session_id = args['session_id']
 
+        session_id_db = authenticate_user(session_id)
+        if not session_id_db:
+            return make_response(json.dumps({'Error': 'Unauthorized'}), 403)
+
+        registration_code = Base64Encoder.encode(random(32)).decode('utf-8')
+        node = Dataroom(name=args['name'], registration_code=registration_code, status=1, created_at=int(time.time()))
+        db.session.add(node)
+        db.session.commit()
+
+        return make_response(json.dumps({'registration_code': registration_code, 'node_id': node.node_id}))
 
         # Pre-checks
         ## check input data are valid
@@ -57,34 +68,6 @@ class DataroomManagement(Resource):
         # add dataroom
 
         ###
-
-        if len(raw_signing_key) != 32 or len(raw_encryption_key) != 32 or len(raw_encrypted_private_key) != 72 or \
-                len(raw_public_key) != 32 or len(raw_encrypted_secret_key) != 72 or len(raw_derivation_salt) != 32:
-            return make_response(json.dumps({'Message:': 'Not valid input data'}), 400)
-
-        ## check database entries for node_id and user_id
-        secret_key_db = SecretKeys.query.get(node_id)
-        user_db = Users.query.get(user_id)
-
-        if not user_db:
-            return make_response(json.dumps({'INFO:': f'User_id {user_id} not found.'}), 400)
-
-        if secret_key_db:
-            return make_response(json.dumps({'INFO:': f'Keys for node_id {node_id} already exists.'}), 400)
-
-        # add new db entries
-        created_at = int(time.time())
-        key_id = created_at
-
-        secret_key_new_db = SecretKeys(node_id, key_id, derivation_salt, signing_key, encryption_key,
-                                               encrypted_private_key, public_key, created_at)
-        db.session.add(secret_key_new_db)
-
-        user_keys_new_db = UserKeys(node_id, user_id, encrypted_secret_key)
-        db.session.add(user_keys_new_db)
-
-        db.session.commit()
-        return make_response(json.dumps({'Message:': f'Keys for node_id {node_id} added'}), 200)
 
 
 class DataroomUserManagement(Resource):
@@ -567,8 +550,10 @@ api.add_resource(OpacheRegistrationInit, '/api/user-registration-init')
 api.add_resource(OpacheRegistrationFinish, '/api/user-registration-finish')
 api.add_resource(OpacheServerInit, '/api/user-authentication-init')
 api.add_resource(OpacheServerFinish, '/api/user-authentication-finish')
-api.add_resource(DataroomManagement, '/api/dataroom')
-api.add_resource(DataroomUserManagement, '/api/dataroom/users')
+api.add_resource(DataroomManagementInit, '/api/dataroom/init')
+#api.add_resource(DataroomManagementFinish, '/api/dataroom/finish')
+#api.add_resource(DataroomManagementUpdate, '/api/dataroom/update')
+api.add_resource(DataroomUserManagement, '/api/dataroom/users-keys')
 api.add_resource(ValidateKeyManagement, '/api/dataroom/validate_secret_key')
 api.add_resource(ChallengeResponseManagement, '/api/dataroom/challenge')
 api.add_resource(UserManagement, '/api/user')

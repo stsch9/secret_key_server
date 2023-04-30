@@ -3,40 +3,34 @@ from config import db, ma
 class Dataroom(db.Model):
     __tablename__ = "datarooms"
     node_id = db.Column(db.Integer, primary_key=True)
-    users = db.Column(db.String)
-    verification_key = db.Column(db.String(32))
+    name = db.Column(db.String)
+    registration_code = db.Column(db.String)
+    status = db.Column(db.Integer)
     created_at = db.Column(db.Integer)
 
-    def __init__(self, node_id, users, verification_key, created_at):
-        self.node_id = node_id
-        self.users = users
-        self.verification_key = verification_key
+    def __init__(self, name, registration_code, status, created_at):
+        self.name = name
+        self.registration_code = registration_code
+        self.status = status  # 1 = registration first step finished, 2 = registration finished
         self.created_at = created_at
 
 
 class DataroomKeys(db.Model):
     __tablename__ = "dataroom_keys"
-    node_id = db.Column(db.Integer, db.ForeignKey('datarooms.node_id'), primary_key=True)
-    key_type = db.Column(db.Integer, primary_key=True)  # 1 = secret key, 2 = recipient key, 3 = meta
-    key_id = db.Column(db.Integer)
+    key_id = db.Column(db.String, primary_key=True)
+    node_id = db.Column(db.Integer, db.ForeignKey('datarooms.node_id'))
+    key_type = db.Column(db.Integer)  # 1 = secret key, 2 = recipient key, 3 = meta
     signing_key = db.Column(db.String(32))
-    encryption_key = db.Column(db.String(32))
-    intermediate_keys = db.Column(db.String)
+    token = db.Column(db.String)
     created_at = db.Column(db.Integer)
 
-    def __init__(self, node_id, key_type, key_id, signing_key, encryption_key, intermediate_keys, created_at):
+    def __init__(self, key_id, node_id, key_type, signing_key, token, created_at):
+        self.key_id = key_id
         self.node_id = node_id
         self.key_type = key_type
-        self.key_id = key_id
         self.signing_key = signing_key
-        self.encryption_key = encryption_key
-        self.intermediate_keys = intermediate_keys
+        self.token = token
         self.created_at = created_at
-
-
-class DataroomKeysSchema(ma.Schema):
-    class Meta:
-        fields = ('node_id', 'type', 'key_id', 'signing_key', 'encryption_key', 'intermediate_keys', 'created_at')
 
 
 #class FileKeys(db.Model):
@@ -60,7 +54,7 @@ class DataroomKeysSchema(ma.Schema):
 
 class Challenges(db.Model):
     __tablename__ = "challenges"
-    key_id = db.Column(db.Integer, db.ForeignKey('dataroom_keys.key_id'), primary_key=True)
+    key_id = db.Column(db.String, db.ForeignKey('dataroom_keys.key_id'), primary_key=True)
     challenge = db.Column(db.String(32))
     created_at = db.Column(db.Integer)
 
@@ -101,7 +95,7 @@ class UsersSchema(ma.Schema):
 class UserKeys(db.Model):
     __tablename__ = "user_keys"
     user_id = db.Column(db.Integer, db.ForeignKey('users.user_id'), primary_key=True)
-    key_id = db.Column(db.Integer, db.ForeignKey('dataroom_keys.key_id'), primary_key=True)
+    key_id = db.Column(db.String, db.ForeignKey('dataroom_keys.key_id'), primary_key=True)
     encrypted_master_key = db.Column(db.String(72))
 
     def __init__(self, user_id, key_id, encrypted_master_key):

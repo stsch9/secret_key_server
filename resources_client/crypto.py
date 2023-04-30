@@ -128,7 +128,7 @@ def _decrypt_key(skR: bytes, pkE: bytes, cipertext: bytes) -> bytes:
     return plaintext
 
 
-def _encrypt_key_file(sk: bytes, key_dict: dict, footer_dict: dict) -> bytes:
+def _encrypt_token(sk: bytes, key_dict: dict, footer_dict: dict) -> bytes:
     ensure(
         isinstance(sk, bytes)
         and len(sk) == MASTER_KEY_BYTES,
@@ -149,7 +149,7 @@ def _encrypt_key_file(sk: bytes, key_dict: dict, footer_dict: dict) -> bytes:
     return token
 
 
-def _decrypt_key_file(sk: bytes, token: bytes) -> Token:
+def _decrypt_token(sk: bytes, token: bytes) -> Token:
     ensure(
         isinstance(sk, bytes)
         and len(sk) == MASTER_KEY_BYTES,
@@ -220,7 +220,7 @@ def generate_user_token(user_dict: dict) -> tuple[bytes, bytes, bytes]:
     return private_bytes, public_bytes, token
 
 
-def renew_dataroomkeys(user_dict: dict, token_secret=b'', token_recipient=b'', master_key_meta=b'') -> \
+def renew_dataroomkeys(user_dict: dict, node_id: int, token_secret=b'', token_recipient=b'', master_key_meta=b'') -> \
         tuple[bytes, bytes, bytes, bytes, bytes, bytes]:
     piK, siK = crypto_kx_keypair()
     key_id = random()
@@ -228,8 +228,8 @@ def renew_dataroomkeys(user_dict: dict, token_secret=b'', token_recipient=b'', m
     if token_secret and token_recipient and master_key_meta:
         token_key_secret = master_key_meta[0:32]
         token_key_recipient = master_key_meta[32:64]
-        siK_dict = _decrypt_key_file(token_key_secret, token_secret).payload
-        riK_dict = _decrypt_key_file(token_key_recipient, token_recipient).payload
+        siK_dict = _decrypt_token(token_key_secret, token_secret).payload
+        riK_dict = _decrypt_token(token_key_recipient, token_recipient).payload
 
         key_dict_secret = {Base64Encoder.encode(key_id).decode('utf-8'): Base64Encoder.encode(siK).decode('utf-8')}.update(siK_dict)
         key_dict_recipient = {Base64Encoder.encode(key_id).decode('utf-8'): Base64Encoder.encode(piK).decode('utf-8')}.update(riK_dict)
@@ -239,34 +239,32 @@ def renew_dataroomkeys(user_dict: dict, token_secret=b'', token_recipient=b'', m
 
     token_key_secret = random()
     token_key_recipient = random()
+    token_key_user = random()
     signing_key_secret = random()
     signing_key_recipient = random()
     signing_key_meta = random()
 
-    signing_key_user, verify_key_user, token_user = generate_user_token(user_dict)
-    print(Base64Encoder.encode(verify_key_user).decode('utf-8'))
-
     master_key_secret = token_key_secret + signing_key_secret
     master_key_recipient = token_key_recipient + signing_key_recipient
-    master_key_meta = token_key_secret + token_key_recipient + signing_key_user + signing_key_meta
+    master_key_meta = token_key_secret + token_key_recipient + token_key_user + signing_key_meta
 
-    token_secret = _encrypt_key_file(token_key_secret, key_dict_secret, {'user_verify_key': Base64Encoder.encode(verify_key_user).decode('utf-8')})
-    token_recipient = _encrypt_key_file(token_key_recipient, key_dict_recipient, {'user_verify_key': Base64Encoder.encode(verify_key_user).decode('utf-8')})
+    token_secret = _encrypt_token(token_key_secret, key_dict_secret, {'node_id': node_id, 'key_id': key_id})
+    token_recipient = _encrypt_token(token_key_recipient, key_dict_recipient, {'node_id': node_id, 'key_id': key_id})
+    token_user = _encrypt_token(token_key_user, user_dict, {'node_id': node_id, 'key_id': key_id})
 
     return master_key_secret, master_key_recipient, master_key_meta, token_secret, token_recipient, token_user
 
 
-a, b, c, d, e, f = renew_dataroomkeys({'bla': 'bla'})
-print(e)
+def derive_authentication_key(session_key: bytes, signing_key: bytes) -> bytes
+    hkdf = HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=signing_key,
+        info=b'authenticationkey',
+    )
 
-import base64
-t = "eyJ1c2VyX3ZlcmlmeV9rZXkiOiAiUzRCdWZHUytqWWFReHVCQ0pTNHJFbjFUNytRTGVLRGxjV2NpZG9ZbEFSYz0ifQ"
-a = base64.urlsafe_b64decode(t + '=' * (4 - len(t) % 4))
-import json
+    return hkdf.derive(session_key)
 
-print(json.loads(a.decode('utf-8'))['user_verify_key'])
-
-exit()
 
 pkR, skR = crypto_kx_keypair()
 pkS, skS = crypto_kx_keypair()

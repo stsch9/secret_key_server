@@ -1,6 +1,7 @@
 import time
 from requests.auth import AuthBase
 from cryptography.hazmat.primitives import hashes, hmac
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 try:
     from urlparse import parse_qs, urlsplit, urlunsplit
@@ -15,21 +16,30 @@ def _get_current_timestamp():
 
 
 class HmacAuth(AuthBase):
-    API_KEY_QUERY_PARAM = 'node_id'
+    API_KEY_QUERY_PARAM = 'key_id'
     SIGNATURE_HTTP_HEADER = 'X-Auth-Signature'
     TIMESTAMP_HTTP_HEADER = 'X-Auth-Timestamp'
     VERSION_HTTP_HEADER = 'X-Auth-Version'
     SIGNATURE_DELIM = '\n'
     VERSION_1 = '1'
 
-    def __init__(self, api_key, secret_key, challenge):
+    def __init__(self, session_key: bytes, api_key=b'', salt=b'', challenge=b''):
         self.api_key = api_key
-        self.secret_key = secret_key
+        self.secret_key = self._derive_secret_key(session_key, salt)
         self.challenge = challenge
 
     def __call__(self, request):
         self._encode(request)
         return request
+
+    def _derive_secret_key(self, session_key: bytes, salt: bytes) -> bytes:
+        key_material = session_key
+        if salt:
+            info = b'signing_key'
+            hkdf = HKDF(algorithm=hashes.SHA256(), salt=salt, length=32, info=info)
+            return hkdf.derive(key_material)
+        else:
+            return session_key
 
     def _encode(self, request):
         timestamp = _get_current_timestamp()
@@ -43,7 +53,10 @@ class HmacAuth(AuthBase):
         url = request.url
         scheme, netloc, path, query_string, fragment = urlsplit(url)
         query_params = parse_qs(query_string)
-        query_params[HmacAuth.API_KEY_QUERY_PARAM] = self.api_key
+        if self.api_key:
+            query_params[HmacAuth.API_KEY_QUERY_PARAM] = self.api_key
+        else:
+            query_params[HmacAuth.API_KEY_QUERY_PARAM] = 0
         new_query_string = urlencode(query_params, doseq=True)
         new_url = urlunsplit((scheme, netloc, path, new_query_string, fragment))
         request.url = new_url
@@ -62,9 +75,10 @@ class HmacAuth(AuthBase):
                   bytearray(HmacAuth.SIGNATURE_DELIM, 'utf-8') + \
                   bytearray(timestamp, 'utf-8') + \
                   bytearray(HmacAuth.SIGNATURE_DELIM, 'utf-8') + \
-                  bytearray(path, 'utf-8') + \
-                  bytearray(HmacAuth.SIGNATURE_DELIM, 'utf-8') + \
-                  self.challenge
+                  bytearray(path, 'utf-8')
+
+        if self.challenge:
+            message += bytearray(HmacAuth.SIGNATURE_DELIM, 'utf-8') + self.challenge
 
         if content:
             message += bytearray(HmacAuth.SIGNATURE_DELIM, 'utf-8') + bytearray(content, 'utf-8')
