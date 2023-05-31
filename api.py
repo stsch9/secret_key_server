@@ -48,6 +48,24 @@ class DataroomManagementInit(Resource):
 
         return make_response(json.dumps({'registration_code': registration_code, 'node_id': node.node_id}))
 
+class DataroomManagementFinish(Resource):
+    # register new dataroom (new master keys (secret + recipient master key)
+    # 2 steps since the node_id is used in the tokens
+    @staticmethod
+    def post():
+        parser = reqparse.RequestParser()
+        parser.add_argument('node_id', required=True)
+        parser.add_argument('registration_code', required=True)
+        parser.add_argument('session_id', required=True, location='cookies')
+        parser.add_argument('X-Auth-Signature', required=True, location='headers')
+        parser.add_argument('X-Auth-Timestamp', required=True, location='headers')
+        args = parser.parse_args()
+        session_id = args['session_id']
+
+        session_id_db = authenticate_user(session_id)
+        if not session_id_db:
+            return make_response(json.dumps({'Error': 'Unauthorized'}), 403)
+
         # Pre-checks
         ## check input data are valid
         #try:
@@ -551,7 +569,7 @@ api.add_resource(OpacheRegistrationFinish, '/api/user-registration-finish')
 api.add_resource(OpacheServerInit, '/api/user-authentication-init')
 api.add_resource(OpacheServerFinish, '/api/user-authentication-finish')
 api.add_resource(DataroomManagementInit, '/api/dataroom/init')
-#api.add_resource(DataroomManagementFinish, '/api/dataroom/finish')
+api.add_resource(DataroomManagementFinish, '/api/dataroom/finish')
 #api.add_resource(DataroomManagementUpdate, '/api/dataroom/update')
 api.add_resource(DataroomUserManagement, '/api/dataroom/users-keys')
 api.add_resource(ValidateKeyManagement, '/api/dataroom/validate_secret_key')
