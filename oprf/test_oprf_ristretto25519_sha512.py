@@ -36,3 +36,6 @@ print("Evaluated Elemant: " + evaluatedElement.hex())
 
 output = Finalize(bytes.fromhex(Input), bytes.fromhex(r), evaluatedElement)
 print("Output: " + output.hex())
+
+mode = 0x00
+print(type(mode))

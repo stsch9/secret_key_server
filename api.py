@@ -14,6 +14,7 @@ from cryptography.hazmat.primitives import hashes, hmac, constant_time
 from oblivious import sodium
 from oprf.oprf_ristretto25519_sha512 import BlindEvaluate
 from oprf.opaque import Nh, CreateRegistrationResponse, OPAQUE3DH
+from resources_client.crypto import MasterKeyUser
 
 #dataroom_key_schema = DataroomKeysSchema()
 challenges_schema = ChallengesSchema()
@@ -56,15 +57,40 @@ class DataroomManagementFinish(Resource):
         parser = reqparse.RequestParser()
         parser.add_argument('node_id', required=True)
         parser.add_argument('registration_code', required=True)
+        parser.add_argument('verify_key', required=True)
+        parser.add_argument('token_user', required=True)
         parser.add_argument('session_id', required=True, location='cookies')
         parser.add_argument('X-Auth-Signature', required=True, location='headers')
         parser.add_argument('X-Auth-Timestamp', required=True, location='headers')
         args = parser.parse_args()
+        registration_code = args['registration_code']
+        node_id = args['node_id']
         session_id = args['session_id']
+        verify_key = args['verify_key']
+        token_user = args['token_user']
 
+        # user authentication
         session_id_db = authenticate_user(session_id)
         if not session_id_db:
             return make_response(json.dumps({'Error': 'Unauthorized'}), 403)
+
+        # validate registration code
+        dataroom_db = Dataroom.query.get(node_id)
+        if not dataroom_db or dataroom_db.status != 1:
+            return make_response(json.dumps({'INFO:': f'Registration of dataroom {node_id} not possible.'}), 400)
+
+        if not constant_time.bytes_eq(bytes.fromhex(registration_code), bytes.fromhex(node_id.registration_code)):
+            return make_response(json.dumps({'INFO:': f'Unauthorized'}), 403)
+
+        # verify user token
+        try:
+            pk = bytes.fromhex(verify_key)
+            token = bytes.fromhex(token_user)
+            token_cls = MasterKeyUser.verify_token(pk, token)
+        except:
+            return make_response(json.dumps({'Error': 'Token verification error'}), 400)
+
+
 
         # Pre-checks
         ## check input data are valid
