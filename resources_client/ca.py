@@ -9,21 +9,25 @@ from hmac import compare_digest
 class CA(object):
     def __init__(self, sk: bytes, cert: bytes, implicit_assertion=b''):
         self._sk = sk
-        self.implicit_assertion = implicit_assertion
         self.cert = cert
+        self.implicit_assertion = implicit_assertion
 
         self.pk, sk = crypto_sign_seed_keypair(self._sk)
         self.payload = self.verify(self.pk, cert, implicit_assertion)
 
     @property
-    def verify_key(self):
+    def cert_file(self) -> bytes:
+        return self.cert
+
+    @property
+    def verify_key(self) -> bytes:
         return self.pk
 
     @staticmethod
-    def verify(pk: bytes, cert: bytes, implicit_assertion=b'') -> dict:
+    def verify(pk: bytes, cert_file: bytes, implicit_assertion=b'') -> dict:
         public_key = Key.from_asymmetric_key_params(4, x=pk)
         decoded = pyseto.decode(keys=public_key,
-                                token=cert,
+                                token=cert_file,
                                 deserializer=json,
                                 implicit_assertion=implicit_assertion)
         payload = decoded.payload
@@ -53,7 +57,7 @@ class CA(object):
                    "created_by": user_id,
                    "verify_key": pk.hex(),
                    "verify_key_version": 1,
-                   "users": {user_id: user_pk.hex()}}
+                   "users": {str(user_id): user_pk.hex()}}
         private_key = Key.from_asymmetric_key_params(4, d=sk)
         token = pyseto.encode(
             private_key,
@@ -62,7 +66,7 @@ class CA(object):
             implicit_assertion=implicit_assertion,
         )
 
-        return CA(sk, token, implicit_assertion)
+        return cls(sk, token, implicit_assertion)
 
     def rekey(self, signer_id: int, implicit_assertion=b'') -> tuple[bytes, bytes]:
         self.pk, new_sk = crypto_sign_keypair()
@@ -99,7 +103,7 @@ class CA(object):
         self.payload["version"] += 1
         self.payload['created_at'] = int(time.time())
         self.payload['created_by'] = signer_id
-        self.payload['users'].update({user_id: user_pk.hex()})
+        self.payload['users'].update({str(user_id): user_pk.hex()})
 
         private_key = Key.from_asymmetric_key_params(4, d=self._sk)
         token = pyseto.encode(
@@ -116,7 +120,7 @@ class CA(object):
         self.payload['created_at'] = int(time.time())
         self.payload['created_by'] = signer_id
         try:
-            del self.payload['users'][user_id]
+            del self.payload['users'][str(user_id)]
         except KeyError:
             raise Exception("User not found")
 
