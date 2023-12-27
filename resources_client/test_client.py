@@ -1,6 +1,7 @@
 import unittest
 from ca import CA
-from dataroom import encrypt_keys_token, decrypt_keys_token, AdminUser, verify_perm_token, sign_perm_token, AdminRoomToken, UserPermToken, RoomKeysToken
+from dataroom import encrypt_keys_token, decrypt_keys_token, verify_perm_token, sign_perm_token, AdminRoomToken, UserPermToken, RoomKeysToken
+from dataroom_roles import AdminUser, ReadWriteUser, WriteUser
 from pysodium import crypto_kx_keypair, crypto_sign_keypair, crypto_sign_seed_keypair, crypto_scalarmult_base
 
 node_id = "a11c78ed5f0a172005f1deeaa0e36d7b3c9497bb6c02a82de3f4714fee83104c"
@@ -115,7 +116,7 @@ class TestCA(unittest.TestCase):
         # verify permission token
         user_perm_token_eve = UserPermToken.verify(node_id=bytes.fromhex(node_id), public_key=bytes.fromhex(room_keys_token_eve.verify_key), token=signed_token)
 
-        self.assertEqual(room_keys_token_eve.payload['version'], 1)
+        self.assertEqual(room_keys_token_eve.version, 1)
         self.assertEqual(user_perm_token_eve.version, 2)
         # check public distribution key
         self.assertEqual(room_keys_token_eve.public_distribution_key, crypto_scalarmult_base(bytes.fromhex(self.admin_user.admin_room_token.secret_distribution_key)).hex())
@@ -147,7 +148,7 @@ class TestCA(unittest.TestCase):
     def test_add_remove_perm_1(self):
         # add bob with dataroom write rights
         key_dict, signed_token = self.admin_user.add_user(user_id_bob, 1, sk_alice, self.ca.verify_key, self.cert_file)
-        # eve decrypt secret room token
+        # bob decrypt secret room token
         room_keys_token_bob = RoomKeysToken.decrypt(bytes.fromhex(node_id), key_dict[user_id_bob][0], sk_bob, pk_alice,
                                                     key_dict[user_id_bob][1])
 
@@ -156,7 +157,7 @@ class TestCA(unittest.TestCase):
                                                    public_key=bytes.fromhex(room_keys_token_bob.verify_key),
                                                    token=signed_token)
 
-        self.assertEqual(room_keys_token_bob.payload['version'], 1)
+        self.assertEqual(room_keys_token_bob.version, 1)
         self.assertEqual(user_perm_token_bob.version, 2)
         # check public distribution key
         self.assertEqual(room_keys_token_bob.public_distribution_key, crypto_scalarmult_base(
@@ -186,6 +187,53 @@ class TestCA(unittest.TestCase):
         # check user is removed in perm token
         self.assertNotIn(str(user_id_bob), user_perm_token.perm)
         self.assertIn(str(user_id_alice), user_perm_token.perm)
+
+    def test_add_remove_muliple_user(self):
+        # add eve with dataroom read/write rights
+        key_dict, signed_token = self.admin_user.add_user(user_id_eve, 2, sk_alice, self.ca.verify_key, self.cert_file)
+        ## eve decrypt secret room token
+        room_keys_token_eve = RoomKeysToken.decrypt(bytes.fromhex(node_id), key_dict[user_id_eve][0], sk_eve, pk_alice,
+                                                    key_dict[user_id_eve][1])
+        ## verify permission token
+        user_perm_token_eve = UserPermToken.verify(node_id=bytes.fromhex(node_id),
+                                                   public_key=bytes.fromhex(room_keys_token_eve.verify_key),
+                                                   token=signed_token)
+        read_write_user_eve = ReadWriteUser(room_keys_token_eve, user_perm_token_eve)
+
+        # add bob with dataroom write rights
+        key_dict, signed_token = self.admin_user.add_user(user_id_bob, 1, sk_alice, self.ca.verify_key, self.cert_file)
+        ## bob decrypt secret room token
+        room_keys_token_bob = RoomKeysToken.decrypt(bytes.fromhex(node_id), key_dict[user_id_bob][0], sk_bob, pk_alice,
+                                                    key_dict[user_id_bob][1])
+        ## verify permission token
+        user_perm_token_bob = UserPermToken.verify(node_id=bytes.fromhex(node_id),
+                                                   public_key=bytes.fromhex(room_keys_token_bob.verify_key),
+                                                   token=signed_token)
+        write_user_bob = WriteUser(room_keys_token_bob, user_perm_token_bob)
+
+        # remove eve
+        old_sdk = self.admin_user.admin_room_token.secret_distribution_key
+        old_pdk = crypto_scalarmult_base(bytes.fromhex(old_sdk)).hex()
+
+        old_sk = self.admin_user.admin_room_token.secret_signing_key
+        old_vk, sk = crypto_sign_seed_keypair(bytes.fromhex(old_sk))
+
+        user_perm_token, key_dict = self.admin_user.remove_user(3, self.ca.verify_key, self.cert_file)
+        # test bob has old PDK
+        self.assertEqual(write_user_bob.recipient_room_keys_token.public_distribution_key, old_pdk)
+
+        write_user_bob.receive_new_room_keys_token(sk_bob, key_dict[str(user_id_bob)][0], key_dict[str(user_id_bob)][1])
+        # test bob has new PDK now
+        self.assertEqual(write_user_bob.recipient_room_keys_token.public_distribution_key, crypto_scalarmult_base(
+            bytes.fromhex(self.admin_user.admin_room_token.secret_distribution_key)).hex())
+
+        # test bob has old VK
+        self.assertEqual(write_user_bob.recipient_room_keys_token.verify_key, old_vk.hex())
+        write_user_bob.receive_new_perm_token(user_perm_token)
+        # test bob has new PDK now
+        new_vk, sk = crypto_sign_seed_keypair(bytes.fromhex(self.admin_user.admin_room_token.secret_signing_key))
+        self.assertEqual(write_user_bob.recipient_room_keys_token.verify_key, new_vk.hex())
+
 
 if __name__ == '__main__':
     unittest.main()

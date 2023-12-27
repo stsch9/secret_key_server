@@ -1,5 +1,6 @@
 import sys
 import json
+import os
 from pyseto import Key, Paseto, Token
 from pyhpke import AEADId, CipherSuite, KDFId, KEMId, KEMKey
 from nacl.bindings import crypto_secretstream_xchacha20poly1305_state, crypto_secretstream_xchacha20poly1305_init_push, \
@@ -12,11 +13,6 @@ from nacl.bindings import crypto_secretstream_xchacha20poly1305_state, crypto_se
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF, HKDFExpand
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from cryptography.hazmat.primitives import serialization
-from nacl.utils import random
-from nacl.exceptions import CryptoError
-from nacl.encoding import Base64Encoder
 from nacl import exceptions as exc
 from nacl.exceptions import ensure
 from SecureString import clearmem
@@ -46,7 +42,6 @@ def _encrypt_msg(key: bytes, msg: BinaryIO, blocksize=blocksize_msg) -> bytes:
         c = data
     enc = crypto_secretstream_xchacha20poly1305_push(state, c, None, crypto_secretstream_xchacha20poly1305_TAG_FINAL)
     yield enc
-
 
 def _decrypt_msg(key: bytes, msg: BinaryIO, blocksize=blocksize_msg) -> bytes:
     state = crypto_secretstream_xchacha20poly1305_state()
@@ -93,7 +88,6 @@ def _encrypt_key(pkR: bytes, key: bytes) -> tuple[bytes, bytes]:
     ciphertext = crypto_aead_chacha20poly1305_ietf_encrypt(message=key, aad=None, nonce=bytes(12), key=wrap_key)
     return pkE, ciphertext
 
-
 def _decrypt_key(skR: bytes, pkE: bytes, cipertext: bytes) -> bytes:
     ensure(
         isinstance(skR, bytes)
@@ -128,7 +122,6 @@ def _decrypt_key(skR: bytes, pkE: bytes, cipertext: bytes) -> bytes:
     plaintext = crypto_aead_chacha20poly1305_ietf_decrypt(ciphertext=cipertext, aad=None, nonce=bytes(12), key=wrap_key)
     return plaintext
 
-
 def _encrypt_token(sk: bytes, key_dict: dict, footer_dict: dict) -> bytes:
     ensure(
         isinstance(sk, bytes)
@@ -149,7 +142,6 @@ def _encrypt_token(sk: bytes, key_dict: dict, footer_dict: dict) -> bytes:
     )
     return token
 
-
 def _decrypt_token(sk: bytes, token: bytes) -> Token:
     ensure(
         isinstance(sk, bytes)
@@ -164,7 +156,6 @@ def _decrypt_token(sk: bytes, token: bytes) -> Token:
     decoded = pyseto.decode(paseto_key, token, deserializer=json)
 
     return decoded
-
 
 def _encrypt_hpke(pkr: bytes, sks: bytes, psk: bytes, msg: bytes) -> tuple[bytes, bytes]:
     ensure(
@@ -197,7 +188,6 @@ def _encrypt_hpke(pkr: bytes, sks: bytes, psk: bytes, msg: bytes) -> tuple[bytes
     pkr = KEMKey.from_pyca_cryptography_key(X25519PublicKey.from_public_bytes(pkr))
     enc, sender = suite_s.create_sender_context(pkr=pkr, sks=sks, psk=psk)
     return enc, sender.seal(msg)
-
 
 def _sign_token(sk: bytes, payload: dict, footer_dict: dict) -> bytes:
     #private_key = Ed25519PrivateKey.generate()
@@ -244,135 +234,6 @@ def _verify_token(pk: bytes, token: bytes) -> Token:
     decoded = pyseto.decode(public_key, token, deserializer=json)
 
     return decoded
-
-class MasterKey:
-    def __init__(self, x: bytes):
-        if isinstance(x, bytes) and len(x) == 64:
-            self.master_key = x
-            self.token_key_bytes = x[0:32]
-            self.signing_key_bytes = x[32:64]
-        else:
-            raise Exception("Invalid key")
-
-    @property
-    def token_key(self) -> bytes:
-        return self.token_key_bytes
-
-    @property
-    def signing_key(self) -> bytes:
-        return self.signing_key_bytes
-
-    def encrypt_token(self, payload: dict, node_id: int, key_id: str, verify_key: str) -> bytes:
-        return _encrypt_token(self.token_key, payload, {'node_id': node_id, 'key_id': key_id, 'verify_key': verify_key})
-
-    def decrypt_token(self, token: bytes) -> Token:
-        return _decrypt_token(self.token_key, token)
-
-
-class MasterKeyUser:
-    def __init__(self, x: bytes):
-        if isinstance(x, bytes) and len(x) == 64:
-            self.master_key = x
-            self.token_key_bytes = x[0:32]
-            self.signing_key_bytes = x[32:64]
-        else:
-            raise Exception("Invalid key")
-
-    @property
-    def token_key(self) -> bytes:
-        return self.token_key_bytes
-
-    @property
-    def signing_key(self) -> bytes:
-        return self.signing_key_bytes
-
-    def sign_token(self, user_dict: dict, node_id: int, key_id: str) -> bytes:
-        return _sign_token(self.token_key, user_dict, {'node_id': node_id, 'key_id': key_id})
-
-    @staticmethod
-    def verify_token(pk: bytes, token: bytes) -> Token:
-        return _verify_token(pk, token)
-
-
-class MasterKeyMeta:
-    def __init__(self, x: bytes):
-        if isinstance(x, bytes) and len(x) == 64:
-            self.token_key_secret = HKDFExpand(algorithm=hashes.SHA256(), length=32,
-                                               info=b'token_key_secret').derive(x[0:32])
-            self.token_key_recipient = HKDFExpand(algorithm=hashes.SHA256(), length=32,
-                                               info=b'token_key_recipient').derive(x[0:32])
-            self.token_key_user = HKDFExpand(algorithm=hashes.SHA256(), length=32,
-                                               info=b'token_key_user').derive(x[0:32])
-            self.signing_key_secret = HKDFExpand(algorithm=hashes.SHA256(), length=32,
-                                               info=b'signing_key_secret').derive(x[32:64])
-            self.signing_key_recipient = HKDFExpand(algorithm=hashes.SHA256(), length=32,
-                                                 info=b'signing_key_recipient').derive(x[32:64])
-            self.signing_key_user = HKDFExpand(algorithm=hashes.SHA256(), length=32,
-                                                    info=b'signing_key_user').derive(x[32:64])
-        else:
-            raise Exception("Invalid key")
-
-    @property
-    def master_key_user(self) -> MasterKeyUser:
-        return MasterKeyUser(self.token_key_user + self.signing_key_user)
-
-    @property
-    def master_key_secret(self) -> MasterKey:
-        return MasterKey(self.token_key_secret + self.signing_key_secret)
-
-    @property
-    def master_key_recipient(self) -> MasterKey:
-        return MasterKey(self.token_key_recipient + self.signing_key_recipient)
-
-    @classmethod
-    def _add_new_intermediate_keys(cls, int_keys_secret: dict, int_keys_recipient: dict, node_id: int,
-                                   user_permissions: dict) -> tuple["MasterKeyMeta", bytes, bytes, bytes]:
-        master_key_meta_new = cls.generate()
-        key_id = random(32).hex()
-
-        pk = crypto_sign_seed_keypair(master_key_meta_new.token_key_user)[0]
-        token_user = master_key_meta_new.master_key_user.sign_token(user_permissions, node_id, key_id)
-
-        # genarate new intermediate keys + intermediate key_id
-        piK, siK = crypto_kx_keypair()
-        int_keys_secret.update({key_id: siK.hex()})
-        token_secret_keys = master_key_meta_new.master_key_secret.encrypt_token(int_keys_secret, node_id, key_id, pk.hex())
-
-        int_keys_recipient.update({key_id: piK.hex()})
-        token_recipient_keys = master_key_meta_new.master_key_recipient.encrypt_token(int_keys_recipient, node_id, key_id, pk.hex())
-
-        return master_key_meta_new, token_user, token_secret_keys, token_recipient_keys
-
-    @classmethod
-    def generate(cls) -> "MasterKeyMeta":
-        return cls(random(64))
-
-    @classmethod
-    def initialize(cls, node_id: int, user_permissions: dict) -> tuple["MasterKeyMeta", bytes, bytes, bytes]:
-        return cls._add_new_intermediate_keys({}, {}, node_id, user_permissions)
-
-    def add_user(self, token: bytes, user_id: int, user_rights: int) -> bytes:
-        pk = crypto_sign_seed_keypair(self.token_key_user)[0]
-        token = MasterKeyUser.verify_token(pk, token)
-        # add new user
-        payload_token = token.payload
-        payload_token.update({user_id: user_rights})
-        new_token = self.master_key_user.sign_token(payload_token, token.footer['node_id'], token.footer['key_id'])
-        return new_token
-
-    def change_user(self, token_user: bytes, token_secret: bytes, token_recipient: bytes, user_permissions: dict) -> \
-            tuple["MasterKeyMeta", bytes, bytes, bytes]:
-        pk = crypto_sign_seed_keypair(self.token_key_user)[0]
-        token_user_cls = MasterKeyUser.verify_token(pk, token_user)
-        token_secret_cls = self.master_key_secret.decrypt_token(token_secret)
-        token_recipient_cls = self.master_key_recipient.decrypt_token(token_recipient)
-        node_id = token_user_cls.footer['node_id']
-
-        int_keys_secret = token_secret_cls.payload
-        int_keys_recipient = token_recipient_cls.payload
-
-        return self._add_new_intermediate_keys(int_keys_secret, int_keys_recipient, node_id, user_permissions)
-
 
 def derive_authentication_key(session_key: bytes, signing_key: bytes) -> bytes:
     hkdf = HKDF(
