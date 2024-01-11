@@ -4,8 +4,8 @@ from pyhpke import AEADId, CipherSuite, KDFId, KEMId, KEMKey
 from pyseto import Key, Paseto
 import pyseto
 from cryptography.hazmat.primitives.asymmetric import x25519
-from pysodium import crypto_sign_keypair, crypto_sign_seed_keypair, crypto_scalarmult_base, crypto_kx_keypair
-from ca import CA
+from pysodium import crypto_sign_seed_keypair, crypto_scalarmult_base
+from oprf.oprf_ristretto25519_sha512_part2 import Blind, Finalize
 
 
 def encrypt_keys_token(node_id: bytes, sks: bytes, pkr: bytes, payload: dict) -> tuple[bytes, bytes]:
@@ -201,6 +201,87 @@ class UserPermToken(object):
     def from_json(cls) -> "UserPermToken":
         return cls
 
+
+class UpDownloadShareCreator(object):
+    ACCESS_KEY_SIZE = 32
+    AUTH_TOKEN_SIZE = 32
+    def __init__(self, password: str, access_key=b'', auth_token=b''):
+        self._password = password
+        if access_key:
+            if not isinstance(access_key, bytes):
+                raise TypeError("access_key must be created from 32 bytes")
+
+            if len(access_key) != self.ACCESS_KEY_SIZE:
+                raise ValueError(
+                    "access_key must be exactly %s bytes long" % self.ACCESS_KEY_SIZE,
+                )
+            self.access_key = access_key
+        else:
+            self.access_key = os.urandom(32)
+
+        if auth_token:
+            if not isinstance(auth_token, bytes):
+                raise TypeError("auth_token must be created from 32 bytes")
+
+            if len(auth_token) != self.AUTH_TOKEN_SIZE:
+                raise ValueError(
+                    "auth_token must be exactly %s bytes long" % self.AUTH_TOKEN_SIZE,
+                )
+            self._auth_token = auth_token
+        else:
+            self._auth_token = os.urandom(32)
+
+        self._oprf_input = access_key + password.encode('utf-8')
+
+    def create_part1(self) -> tuple[bytes, bytes]:
+        blind, blinded_element = Blind(self._oprf_input)
+        return blind, blinded_element
+
+    def create_part2(self, blind: bytes, evaluated_element: bytes) -> tuple[bytes, bytes]:
+        upload_share_key = Finalize(self._oprf_input, blind, evaluated_element)
+
+        mk = os.urandom(32)
+
+        payload = {'auth_token': self._auth_token.hex(),
+                   'master_key': mk.hex()}
+
+        paseto_key = Key.new(version=4, purpose="local", key=upload_share_key)
+        paseto = Paseto.new(include_iat=True)  # Default values are exp=0(not specified) and including_iat=False
+        token = paseto.encode(
+            paseto_key,
+            payload=payload,
+            serializer=json,
+            implicit_assertion=self.access_key
+        )
+
+        return token, mk
+
+
+class UpDownloadShare(object):
+    def __init__(self, password: str, access_key: bytes):
+        self._password = password
+        self.access_key = access_key
+        self._oprf_input = access_key + password.encode('utf-8')
+        self._auth_token = None
+        self._master_key = None
+
+    def decrypt_keys_part1(self) -> tuple[bytes, bytes]:
+        blind, blinded_element = Blind(self._oprf_input)
+        return blind, blinded_element
+
+    def decrypt_keys_part2(self, blind: bytes, evaluated_element: bytes, token: bytes):
+        upload_share_key = Finalize(self._oprf_input, blind, evaluated_element)
+        paseto_key = Key.new(version=4, purpose="local", key=upload_share_key)
+        decoded = pyseto.decode(paseto_key, token, implicit_assertion=self.access_key, deserializer=json)
+
+        self._auth_token = decoded.payload['auth_token']
+        self._master_key = decoded.payload['master_key']
+
+    def upload(self):
+        pass
+
+    def download(self):
+        pass
 
 #keyset = {
 #    "type": ,
